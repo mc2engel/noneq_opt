@@ -6,5 +6,15 @@ setuptools.setup(
   url='https://github.com/mc2engel/noneq_opt',
   license='MIT',
   packages=setuptools.find_packages(),
-  install_requires=["numpy", "scipy", "pandas", "matplotlib", "seaborn", "tensorflow_probability", "jax"]
+  install_requires=[
+  "jax",
+  "jax-md",
+  "matplotlib",
+  "numpy",
+  "pandas",
+  "pytest",
+  "scipy",
+  "seaborn",
+  "tensorflow_probability",
+  ]
 )
