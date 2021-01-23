@@ -7,14 +7,14 @@ setuptools.setup(
   license='MIT',
   packages=setuptools.find_packages(),
   install_requires=[
-  "jax",
-  "jax-md",
-  "matplotlib",
-  "numpy",
-  "pandas",
-  "pytest",
-  "scipy",
-  "seaborn",
-  "tensorflow_probability",
+    "jax",
+    "jax-md",
+    "matplotlib",
+    "numpy",
+    "pandas",
+    "pytest",
+    "scipy",
+    "seaborn",
+    "tensorflow_probability",
   ]
 )
