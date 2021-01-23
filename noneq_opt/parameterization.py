@@ -37,6 +37,10 @@ class Parameterization(metaclass=abc.ABCMeta):
     return dict()
 
   @abc.abstractmethod
+  def domain(self):
+    pass
+
+  @abc.abstractmethod
   def __call__(self, x):
     pass
 
@@ -59,6 +63,10 @@ class Constant(Parameterization):
   def variables(self):
     return dict(value=self.value)
 
+  @property
+  def domain(self):
+    return (0., 1.)
+
   def __call__(self, x):
     return self.value * jnp.ones_like(x)
 
@@ -80,6 +88,10 @@ class PiecewiseLinear(Parameterization):
                 x1=self.x1,
                 y0=self.y0,
                 y1=self.y1)
+
+  @property
+  def domain(self):
+    return (self.x0, self.x1)
 
   @property
   def degree(self):
@@ -129,6 +141,10 @@ class Chebyshev(Parameterization):
     return dict(weights=self.weights)
 
   @property
+  def domain(self):
+    return (0., 1.)
+
+  @property
   def degree(self):
     return self.weights.shape[0] - 1
 
@@ -153,3 +169,30 @@ class Chebyshev(Parameterization):
     x_powers = self._powers(x)
     return jnp.einsum(
       'w,wp,p...->...', self.weights, self.coefficients, x_powers)
+
+
+class ChangeDomain(Parameterization):
+  """Wraps another `Parameterization`, linearly moving to a new domain."""
+  wrapped: Parameterization
+  x0: jnp.array
+  x1: jnp.array
+
+  @property
+  def variables(self):
+    return dict(wrapped=self.wrapped)
+
+  @property
+  def domain(self):
+    return (self.x0, self.x1)
+
+  @property
+  def constants(self):
+    return dict(
+      x0=self.x0,
+      x1=self.x1
+    )
+
+  def __call__(self, x):
+    scale = (self.wrapped.domain[1] - self.wrapped.domain[0]) / (self.x1 - self.x0)
+    _x = (x - self.x0) * scale + self.wrapped.domain[0]
+    return self.wrapped(_x)
