@@ -142,7 +142,7 @@ class Chebyshev(Parameterization):
 
   @property
   def domain(self):
-    return (0., 1.)
+    return (-1., 1.)
 
   @property
   def degree(self):
@@ -165,7 +165,6 @@ class Chebyshev(Parameterization):
 
 
   def __call__(self, x):
-    x = 2. * x - 1.  # Rescale (0, 1) -> (-1, 1)
     x_powers = self._powers(x)
     return jnp.einsum(
       'w,wp,p...->...', self.weights, self.coefficients, x_powers)
