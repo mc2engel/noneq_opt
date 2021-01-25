@@ -1,6 +1,7 @@
 """This module provides classes for parameterized, real-valued functions."""
 import abc
 import dataclasses
+from typing import Callable
 
 import jax
 import jax.numpy as jnp
@@ -226,4 +227,24 @@ class ConstrainEndpoints(Parameterization):
     linear_component = self.y0 + (x - x0) / (x1 - x0) * (self.y1 - self.y0)
     return (x - x0) * (x1 - x) * self.wrapped(x) + linear_component
 
+
+class AddBaseline(Parameterization):
+  """Adds `baseline` to `wrapped`. If `baseline` is a `Parameterization`, it will not be fitted."""
+
+  wrapped: Parameterization
+  baseline: Callable
+
+  @property
+  def variables(self):
+    return dict(wrapped=self.wrapped)
+
+  @property
+  def constants(self):
+    return dict(baseline=self.baseline)
+
+  def domain(self):
+    return self.wrapped.domain
+
+  def __call__(self, x):
+    return self.wrapped(x) + self.baseline(x)
 

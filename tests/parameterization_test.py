@@ -16,7 +16,7 @@ p10ns = [
 ]
 
 
-class TestParameterization:
+class TestParameterizationProperties:
 
   @pytest.mark.parametrize("parameterization", p10ns)
   def test_finite(self, parameterization):
@@ -31,6 +31,18 @@ class TestParameterization:
     flattened, structure = jax.tree_flatten(parameterization)
     unflattened = jax.tree_unflatten(structure, flattened)
     assert parameterization == unflattened
+
+  @pytest.mark.parametrize("parameterization", p10ns)
+  def test_has_domain(self, parameterization):
+    assert isinstance(parameterization.domain, tuple)
+
+  @pytest.mark.parametrize("parameterization", p10ns)
+  def test_variables_and_constants(self, parameterization):
+    all_fields = set(parameterization.__dataclass_fields__)
+    variables = set(parameterization.variables)
+    constants = set(parameterization.constants)
+    assert variables.isdisjoint(constants)
+    assert variables.union(constants) == all_fields
 
 
 class TestChangeDomain:
@@ -54,3 +66,12 @@ class TestConstrainEndpoints:
     np.testing.assert_allclose(parameterization.domain, constrained.domain)
     np.testing.assert_allclose(new_y0, constrained(x0))
     np.testing.assert_allclose(new_y1, constrained(x1))
+
+class TestAddBaseline:
+
+  @pytest.mark.parametrize("baseline", [lambda x: x**2, jnp.sqrt])
+  @pytest.mark.parametrize("parameterization,", p10ns)
+  def test_equal_to_sum(self, parameterization, baseline):
+    with_baseline = p10n.AddBaseline(wrapped=parameterization, baseline=baseline)
+    xs = jnp.linspace(*parameterization.domain, num=100)
+    np.testing.assert_allclose(parameterization(xs) + baseline(xs), with_baseline(xs))
