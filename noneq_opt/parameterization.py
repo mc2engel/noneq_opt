@@ -181,17 +181,49 @@ class ChangeDomain(Parameterization):
     return dict(wrapped=self.wrapped)
 
   @property
-  def domain(self):
-    return (self.x0, self.x1)
-
-  @property
   def constants(self):
     return dict(
       x0=self.x0,
       x1=self.x1
     )
 
+  @property
+  def domain(self):
+    return (self.x0, self.x1)
+
   def __call__(self, x):
     scale = (self.wrapped.domain[1] - self.wrapped.domain[0]) / (self.x1 - self.x0)
     _x = (x - self.x0) * scale + self.wrapped.domain[0]
     return self.wrapped(_x)
+
+
+class ConstrainEndpoints(Parameterization):
+  """Constrains the endpoints of `wrapped`.
+
+  The resulting function will not resemble `wrapped` in general.
+  """
+  wrapped: Parameterization
+  y0: jnp.array
+  y1: jnp.array
+
+  @property
+  def variables(self):
+    return dict(wrapped=self.wrapped)
+
+  @property
+  def constants(self):
+    return dict(
+    y0=self.y0,
+    y1=self.y1
+    )
+
+  @property
+  def domain(self):
+    return self.wrapped.domain
+
+  def __call__(self, x):
+    x0, x1 = self.domain
+    linear_component = self.y0 + (x - x0) / (x1 - x0) * (self.y1 - self.y0)
+    return (x - x0) * (x1 - x) * self.wrapped(x) + linear_component
+
+
