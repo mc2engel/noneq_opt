@@ -1,4 +1,6 @@
 """This module provides classes for parameterized, real-valued functions."""
+# TODO: type annotations.
+
 import abc
 import dataclasses
 from typing import Callable
