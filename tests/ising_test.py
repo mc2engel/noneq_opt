@@ -70,14 +70,13 @@ class TestSimulation:
   )
   def test_detailed_balance(self, shape, field, temperature, seed):
     init_seed, simulation_seed = jax.random.split(jax.random.PRNGKey(seed))
-    even_mask, odd_mask = ising.even_odd_masks(shape)
     params = ising.IsingParameters(jnp.log(temperature), field)
 
     init_spins = ising.random_spins(shape, .5, init_seed)
     init_state = ising.IsingState(init_spins, params)
     init_log_prob = - ising.energy(init_state) / temperature
 
-    new_state, summary = ising.masked_update(init_state, params, even_mask, simulation_seed)
+    new_state, summary = ising.update(init_state, params, simulation_seed)
     new_log_prob = - ising.energy(new_state) / temperature
 
     np.testing.assert_allclose(init_log_prob + summary.forward_log_prob,
