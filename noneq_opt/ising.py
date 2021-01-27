@@ -21,6 +21,7 @@ class IsingState(NamedTuple):
 
 
 class IsingSummary(NamedTuple):
+  work: jnp.array
   forward_log_prob: jnp.array
   reverse_log_prob: jnp.array
 
@@ -32,8 +33,10 @@ def map_slice(x, idx):
 def map_stack(xs, axis=0):
   return jax.tree_multimap(lambda *args: jnp.stack(args, axis), *xs)
 
+
 def random_spins(shape, p, seed):
   return 2 * tfd.Bernoulli(probs=p).sample(shape, seed=seed) - 1
+
 
 def sum_neighbors(spins: jnp.array) -> jnp.array:
   """Sum over the neighbors of each point in a periodic grid."""
@@ -69,7 +72,7 @@ def even_odd_masks(shape: Iterable[int]) -> Tuple[jnp.array, jnp.array]:
 def masked_update(state: IsingState,
                   new_params: IsingParameters,
                   mask: jnp.array,
-                  seed: jnp.array) -> Tuple[IsingState, IsingSummary]:
+                  seed: jnp.array) -> Tuple[IsingState, jnp.array, jnp.array]:
   """Compute random update and energy change for sites indicated by `mask`."""
   logits = flip_logits(state.spins, new_params)
   flip_distribution = tfd.Bernoulli(logits=logits)
@@ -83,9 +86,7 @@ def masked_update(state: IsingState,
   reverse_distribution = tfd.Bernoulli(logits=reverse_logits)
   reverse_log_prob = (reverse_distribution.log_prob(flips) * mask).sum()
 
-  summary = IsingSummary(forward_log_prob, reverse_log_prob)
-
-  return new_state, summary
+  return new_state, forward_log_prob, reverse_log_prob
 
 
 def update(state: IsingState,
@@ -93,9 +94,13 @@ def update(state: IsingState,
            seed: jnp.array) -> Tuple[IsingState, IsingSummary]:
   seed_even, seed_odd = jax.random.split(seed, 2)
   mask_even, mask_odd = even_odd_masks(state.spins.shape)
-  state, even_summary = masked_update(state, new_params, mask_even, seed_even)
-  state, odd_summary = masked_update(state, new_params, mask_odd, seed_odd)
-  summary = jax.tree_multimap(lambda *args: sum(args), even_summary, odd_summary)
+  # TODO: can we combine calculations of log_prob and work for efficiency?
+  work = energy(IsingState(state.spins, new_params) - energy(state))
+  state, even_fwd_log_prob, even_rev_log_prob = masked_update(state, new_params, mask_even, seed_even)
+  state, odd_fwd_log_prob, odd_rev_log_prob = masked_update(state, new_params, mask_odd, seed_odd)
+  summary = IsingSummary(work=work,
+                         forward_log_prob=even_fwd_log_prob + odd_fwd_log_prob,
+                         reverse_log_prob=even_rev_log_prob + odd_rev_log_prob)
   return state, summary
 
 
@@ -113,4 +118,3 @@ def simulate_ising(schedule: IsingParameters,
     new_state, summary  = update(state, params, seed)
     return new_state, summary
   return jax.lax.scan(_step, initial_state, schedule_seeds)
-
