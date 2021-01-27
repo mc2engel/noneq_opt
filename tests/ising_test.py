@@ -1,24 +1,26 @@
 """Tests for `noneq_opt.parameterization`."""
-
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
 from noneq_opt import ising
+from noneq_opt import parameterization as p10n
 
 class TestLibraryFunctions:
 
   @pytest.mark.parametrize(
     ['input', 'expected'],
-    [(jnp.array([0, 1, 2]),
-      jnp.array([3, 2, 1])),
-     (jnp.array([[0, 1, 2],
-                 [3, 4, 5],
-                 [6, 7, 8]]),
-      jnp.array([[12, 13, 14],
-                 [15, 16, 17],
-                 [18, 19, 20]]))]
+    [
+      (jnp.array([0, 1, 2]),
+       jnp.array([3, 2, 1])),
+      (jnp.array([[0, 1, 2],
+                  [3, 4, 5],
+                  [6, 7, 8]]),
+       jnp.array([[12, 13, 14],
+                  [15, 16, 17],
+                  [18, 19, 20]]))
+    ]
   )
   def test_sum_neighbors(self, input, expected):
     np.testing.assert_array_equal(ising.sum_neighbors(input), expected)
@@ -64,9 +66,11 @@ class TestLibraryFunctions:
 class TestSimulation:
   @pytest.mark.parametrize(
     ['shape', 'field', 'temperature', 'seed'],
-    [([10000], 0., 1., 0),
-     ([256, 256], .3, .5, 0),
-     ([64, 64, 64], -.7, 1.5, 0)]
+    [
+      ([10000], 0., 1., 0),
+      ([256, 256], .3, .5, 0),
+      ([64, 64, 64], -.7, 1.5, 0)
+    ]
   )
   def test_detailed_balance(self, shape, field, temperature, seed):
     init_seed, simulation_seed = jax.random.split(jax.random.PRNGKey(seed))
@@ -86,9 +90,11 @@ class TestSimulation:
 
   @pytest.mark.parametrize(
     ['shape', 'field', 'temperature', 'expected_proportion', 'seed'],
-    [([10000], 0., 1., .5, 0),
-     ([256, 256], 3., .2, 1., 0),
-     ([64, 64, 64], -4., .5, 0., 0)]
+    [
+      ([10000], 0., 1., .5, 0),
+      ([256, 256], 3., .2, 1., 0),
+      ([64, 64, 64], -4., .5, 0., 0)
+    ]
   )
   def test_statistics(self, shape, field, temperature, expected_proportion, seed):
     """Sanity check Ising simulations by checking the proprotion of spins for simple examples."""
@@ -96,8 +102,24 @@ class TestSimulation:
     init_spins = ising.random_spins(shape, .5, init_seed)
     # Run for 1000 steps.
     schedule = ising.map_stack([ising.IsingParameters(jnp.log(temperature), field)] * 1000)
-    state, _ = ising.simulate_ising(schedule, init_spins, simulation_seed)
+    state, _ = jax.jit(ising.simulate_ising)(schedule, init_spins, simulation_seed)
     actual_proportion = ((state.spins + 1) / 2).mean()
     print(f'PROPORTIONS: {expected_proportion}, {actual_proportion}')
     np.testing.assert_allclose(actual_proportion, expected_proportion, atol=.05)
 
+  @pytest.mark.parametrize(
+    ['schedule', 'times', 'initial_spins', 'seed'],
+    [
+      (ising.IsingSchedule(log_temp=p10n.Constant(1.), field=p10n.Chebyshev(jnp.ones(8))),
+       jnp.linspace(0, 1, 4),
+       -jnp.ones([10, 10]),
+       jax.random.PRNGKey(0)),
+    ]
+  )
+  def test_estimate_gradient_runs(self, schedule, times, initial_spins, seed):
+    # TODO: figure out a way to validate the gradient estimates. For now, we just verify that the code runs and produces
+    # non-zero values.
+    grad, _ = jax.jit(ising.estimate_gradient)(schedule, times, initial_spins, seed)
+    flat_grad = jax.tree_leaves(grad)
+    for g in flat_grad:
+      assert g.all(), f'Got zero values for gradient: {grad}.'

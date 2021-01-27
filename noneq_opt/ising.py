@@ -1,4 +1,5 @@
 """Code for running and optimizing Ising simulations."""
+import functools
 
 from typing import Iterable, NamedTuple, Tuple, Callable
 
@@ -8,11 +9,20 @@ import jax.numpy as jnp
 from tensorflow_probability.substrates import jax as tfp
 tfd = tfp.distributions
 
-from . import parameterization
+from . import parameterization as p10n
 
 class IsingParameters(NamedTuple):
   log_temp: jnp.array
   field: jnp.array
+
+
+class IsingSchedule(NamedTuple):
+  log_temp: p10n.Parameterization
+  field: p10n.Parameterization
+
+  def __call__(self, x):
+    return IsingParameters(log_temp=self.log_temp(x),
+                           field=self.field(x))
 
 
 class IsingState(NamedTuple):
@@ -95,7 +105,7 @@ def update(state: IsingState,
   seed_even, seed_odd = jax.random.split(seed, 2)
   mask_even, mask_odd = even_odd_masks(state.spins.shape)
   # TODO: can we combine calculations of log_prob and work for efficiency?
-  work = energy(IsingState(state.spins, new_params) - energy(state))
+  work = energy(IsingState(state.spins, new_params)) - energy(state)
   state, even_fwd_log_prob, even_rev_log_prob = masked_update(state, new_params, mask_even, seed_even)
   state, odd_fwd_log_prob, odd_rev_log_prob = masked_update(state, new_params, mask_odd, seed_odd)
   summary = IsingSummary(work=work,
@@ -104,17 +114,30 @@ def update(state: IsingState,
   return state, summary
 
 
-@jax.jit
-def simulate_ising(schedule: IsingParameters,
+def simulate_ising(parameters: IsingParameters,
                    initial_spins: jnp.array,
                    seed: jnp.array
   ) -> Callable[[IsingState, Tuple[IsingState, jnp.array]], Tuple[IsingState, IsingSummary]]:
-  initial_state = IsingState(initial_spins, map_slice(schedule, 0))
-  schedule_tail = map_slice(schedule, slice(1, None))
-  seeds = jax.random.split(seed, schedule.field.shape[0] - 1)
-  schedule_seeds = (schedule_tail, seeds)
-  def _step(state, params_seed):
-    params, seed = params_seed
-    new_state, summary  = update(state, params, seed)
+  initial_state = IsingState(initial_spins, map_slice(parameters, 0))
+  parameters_tail = map_slice(parameters, slice(1, None))
+  seeds = jax.random.split(seed, parameters.field.shape[0] - 1)
+  parameters_seeds = (parameters_tail, seeds)
+  def _step(state, parameters_seed):
+    parameters, seed = parameters_seed
+    new_state, summary  = update(state, parameters, seed)
     return new_state, summary
-  return jax.lax.scan(_step, initial_state, schedule_seeds)
+  return jax.lax.scan(_step, initial_state, parameters_seeds)
+
+
+@functools.partial(jax.grad, has_aux=True)
+def estimate_gradient(schedule: IsingSchedule,
+                      times: jnp.array,
+                      initial_spins: jnp.array,
+                      seed: jnp.array) -> Tuple[jnp.array, jnp.array]:
+
+  parameters = schedule(times)
+  _, summary = simulate_ising(parameters, initial_spins, seed)
+  work = summary.work.sum()
+  log_prob = summary.forward_log_prob.sum()
+  gradient_estimator = log_prob * jax.lax.stop_gradient(work) + work
+  return gradient_estimator, summary
