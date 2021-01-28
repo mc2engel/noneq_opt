@@ -34,6 +34,7 @@ class IsingSummary(NamedTuple):
   work: jnp.array
   forward_log_prob: jnp.array
   reverse_log_prob: jnp.array
+  magnetization: jnp.array
 
 
 def map_slice(x, idx):
@@ -108,9 +109,11 @@ def update(state: IsingState,
   work = energy(IsingState(state.spins, new_params)) - energy(state)
   state, even_fwd_log_prob, even_rev_log_prob = masked_update(state, new_params, mask_even, seed_even)
   state, odd_fwd_log_prob, odd_rev_log_prob = masked_update(state, new_params, mask_odd, seed_odd)
+  magnetization = state.spins.mean()
   summary = IsingSummary(work=work,
                          forward_log_prob=even_fwd_log_prob + odd_fwd_log_prob,
-                         reverse_log_prob=even_rev_log_prob + odd_rev_log_prob)
+                         reverse_log_prob=even_rev_log_prob + odd_rev_log_prob,
+                         magnetization=magnetization)
   return state, summary
 
 
