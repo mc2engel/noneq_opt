@@ -64,15 +64,13 @@ class TestLibraryFunctions:
 
 
 class TestSimulation:
-  @pytest.mark.parametrize(
-    ['shape', 'field', 'temperature', 'seed'],
-    [
-      ([10000], 0., 1., 0),
-      ([256, 256], .3, .5, 0),
-      ([64, 64, 64], -.7, 1.5, 0)
-    ]
-  )
+
+  @pytest.mark.parametrize('shape', [10000, [256, 256], [64, 64, 64]])
+  @pytest.mark.parametrize('field', jnp.linspace(-1, 1, 5))
+  @pytest.mark.parametrize('temperature', jnp.exp(jnp.linspace(-1, 1, 5)))
+  @pytest.mark.parametrize('seed', [0])
   def test_detailed_balance(self, shape, field, temperature, seed):
+    """Test that detailed balance is satisfied."""
     init_seed, simulation_seed = jax.random.split(jax.random.PRNGKey(seed))
     params = ising.IsingParameters(jnp.log(temperature), field)
 
@@ -85,8 +83,26 @@ class TestSimulation:
 
     np.testing.assert_allclose(init_log_prob + summary.forward_log_prob,
                                new_log_prob + summary.reverse_log_prob,
-                               rtol=1e-4)
+                               rtol=5e-4)
 
+  @pytest.mark.parametrize('shape', [10000, [256, 256], [64, 64, 64]])
+  @pytest.mark.parametrize('field', jnp.linspace(-1, 1, 5))
+  @pytest.mark.parametrize('temperature', jnp.exp(jnp.linspace(-1, 1, 5)))
+  @pytest.mark.parametrize('seed', [0])
+  def test_dissipation(self, shape, field, temperature, seed):
+    """Verify the identity `dissipation == temperature * (fwd_log_prob - reverse_log_prob)`."""
+    init_seed, simulation_seed = jax.random.split(jax.random.PRNGKey(seed))
+    params = ising.IsingParameters(jnp.log(temperature), field)
+
+    init_spins = ising.random_spins(shape, .5, init_seed)
+    init_state = ising.IsingState(init_spins, params)
+    init_log_prob = - ising.energy(init_state) / temperature
+
+    new_state, summary = ising.update(init_state, params, simulation_seed)
+
+    np.testing.assert_allclose(temperature * (summary.forward_log_prob - summary.reverse_log_prob),
+                               summary.dissipation,
+                               rtol=1e-4)
 
   @pytest.mark.parametrize(
     ['shape', 'field', 'temperature', 'expected_proportion', 'seed'],

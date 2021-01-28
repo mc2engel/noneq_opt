@@ -32,9 +32,11 @@ class IsingState(NamedTuple):
 
 class IsingSummary(NamedTuple):
   work: jnp.array
+  dissipation: jnp.array
   forward_log_prob: jnp.array
   reverse_log_prob: jnp.array
   magnetization: jnp.array
+  energy: jnp.array
 
 
 def map_slice(x, idx):
@@ -105,15 +107,20 @@ def update(state: IsingState,
            seed: jnp.array) -> Tuple[IsingState, IsingSummary]:
   seed_even, seed_odd = jax.random.split(seed, 2)
   mask_even, mask_odd = even_odd_masks(state.spins.shape)
-  # TODO: can we combine calculations of log_prob and work for efficiency?
-  work = energy(IsingState(state.spins, new_params)) - energy(state)
+  initial_energy = energy(state)
+  intermediate_energy = energy(IsingState(state.spins, new_params))
   state, even_fwd_log_prob, even_rev_log_prob = masked_update(state, new_params, mask_even, seed_even)
   state, odd_fwd_log_prob, odd_rev_log_prob = masked_update(state, new_params, mask_odd, seed_odd)
+  final_energy = energy(state)
   magnetization = state.spins.mean()
-  summary = IsingSummary(work=work,
+  # Dissipation is computed as an explicit energy difference. It may be more efficient to compute it as
+  # `temperature * (fwd_log_prob - rev_log_prob)`.
+  summary = IsingSummary(work=intermediate_energy - initial_energy,
+                         dissipation=intermediate_energy - final_energy,
                          forward_log_prob=even_fwd_log_prob + odd_fwd_log_prob,
                          reverse_log_prob=even_rev_log_prob + odd_rev_log_prob,
-                         magnetization=magnetization)
+                         magnetization=magnetization,
+                         energy=final_energy)
   return state, summary
 
 
