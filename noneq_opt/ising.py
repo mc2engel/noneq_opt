@@ -140,7 +140,8 @@ def estimate_gradient(schedule: IsingSchedule,
 
   parameters = schedule(times)
   _, summary = simulate_ising(parameters, initial_spins, seed)
-  work = summary.work.sum()
-  log_prob = summary.forward_log_prob.sum()
-  gradient_estimator = log_prob * jax.lax.stop_gradient(work) + work
+  forward_log_prob = summary.forward_log_prob.sum()
+  reverse_log_prob = summary.reverse_log_prob.sum()
+  dissipation = forward_log_prob - reverse_log_prob
+  gradient_estimator = forward_log_prob * jax.lax.stop_gradient(dissipation) + dissipation
   return gradient_estimator, summary
