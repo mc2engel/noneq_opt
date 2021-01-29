@@ -89,7 +89,7 @@ class TestSimulation:
   @pytest.mark.parametrize('field', jnp.linspace(-1, 1, 5))
   @pytest.mark.parametrize('temperature', jnp.exp(jnp.linspace(-1, 1, 5)))
   @pytest.mark.parametrize('seed', [0])
-  def test_dissipation(self, shape, field, temperature, seed):
+  def test_entropy_production(self, shape, field, temperature, seed):
     """Verify the identity `dissipation == temperature * (fwd_log_prob - reverse_log_prob)`."""
     init_seed, simulation_seed = jax.random.split(jax.random.PRNGKey(seed))
     params = ising.IsingParameters(jnp.log(temperature), field)
@@ -100,8 +100,9 @@ class TestSimulation:
 
     new_state, summary = ising.update(init_state, params, simulation_seed)
 
-    np.testing.assert_allclose(temperature * (summary.forward_log_prob - summary.reverse_log_prob),
-                               summary.dissipation,
+    # Test that the dissipated heat is equal to the entropy production times temperature.
+    np.testing.assert_allclose(summary.dissipated_heat,
+                               summary.entropy_production * temperature,
                                rtol=1e-4)
 
   @pytest.mark.parametrize(
@@ -132,7 +133,7 @@ class TestSimulation:
        jax.random.PRNGKey(0)),
     ]
   )
-  def test_estimate_gradient_runs(self, schedule, times, initial_spins, seed):
+  def test_estimate_gradient(self, schedule, times, initial_spins, seed):
     # TODO: figure out a way to validate the gradient estimates. For now, we just verify that the code runs and produces
     # non-zero values.
     grad, _ = jax.jit(ising.estimate_gradient)(schedule, times, initial_spins, seed)

@@ -32,9 +32,10 @@ class IsingState(NamedTuple):
 
 class IsingSummary(NamedTuple):
   work: jnp.array
-  dissipation: jnp.array
+  dissipated_heat: jnp.array
   forward_log_prob: jnp.array
   reverse_log_prob: jnp.array
+  entropy_production: jnp.array
   magnetization: jnp.array
   energy: jnp.array
 
@@ -113,12 +114,14 @@ def update(state: IsingState,
   state, odd_fwd_log_prob, odd_rev_log_prob = masked_update(state, new_params, mask_odd, seed_odd)
   final_energy = energy(state)
   magnetization = state.spins.mean()
-  # Dissipation is computed as an explicit energy difference. It may be more efficient to compute it as
-  # `temperature * (fwd_log_prob - rev_log_prob)`.
+  forward_log_prob = even_fwd_log_prob + odd_fwd_log_prob
+  reverse_log_prob = even_rev_log_prob + odd_rev_log_prob
+  entropy_production = forward_log_prob - reverse_log_prob
   summary = IsingSummary(work=intermediate_energy - initial_energy,
-                         dissipation=intermediate_energy - final_energy,
-                         forward_log_prob=even_fwd_log_prob + odd_fwd_log_prob,
-                         reverse_log_prob=even_rev_log_prob + odd_rev_log_prob,
+                         dissipated_heat=intermediate_energy - final_energy,
+                         forward_log_prob=forward_log_prob,
+                         reverse_log_prob=reverse_log_prob,
+                         entropy_production=entropy_production,
                          magnetization=magnetization,
                          energy=final_energy)
   return state, summary
@@ -144,11 +147,10 @@ def estimate_gradient(schedule: IsingSchedule,
                       times: jnp.array,
                       initial_spins: jnp.array,
                       seed: jnp.array) -> Tuple[jnp.array, jnp.array]:
-
+  # TODO: add the option to optimize for different quantities.
   parameters = schedule(times)
   _, summary = simulate_ising(parameters, initial_spins, seed)
-  forward_log_prob = summary.forward_log_prob.sum()
-  reverse_log_prob = summary.reverse_log_prob.sum()
-  dissipation = forward_log_prob - reverse_log_prob
-  gradient_estimator = forward_log_prob * jax.lax.stop_gradient(dissipation) + dissipation
+  log_prob = summary.forward_log_prob.sum()
+  entropy_production = summary.entropy_production.sum()
+  gradient_estimator = log_prob * jax.lax.stop_gradient(entropy_production) + entropy_production
   return gradient_estimator, summary
