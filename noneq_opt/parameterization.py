@@ -245,6 +245,7 @@ class AddBaseline(Parameterization):
   def constants(self):
     return dict(baseline=self.baseline)
 
+  @property
   def domain(self):
     return self.wrapped.domain
 
