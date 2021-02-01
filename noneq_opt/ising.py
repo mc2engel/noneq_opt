@@ -17,8 +17,8 @@ class IsingParameters(NamedTuple):
 
 
 class IsingSchedule(NamedTuple):
-  log_temp: p10n.Parameterization
-  field: p10n.Parameterization
+  log_temp: Callable
+  field: Callable
 
   def __call__(self, x):
     return IsingParameters(log_temp=self.log_temp(x),
@@ -65,6 +65,10 @@ def sum_neighbors(spins: jnp.array) -> jnp.array:
 
 def energy(state: IsingState):
   return (- state.spins * (sum_neighbors(state.spins) / 2 + state.params.field)).sum()
+
+
+def log_prob(state: IsingState):
+  return - energy(state) / jnp.exp(state.params.log_temp)
 
 
 def flip_logits(spins: jnp.array,
@@ -149,8 +153,17 @@ def estimate_gradient(schedule: IsingSchedule,
                       seed: jnp.array) -> Tuple[jnp.array, jnp.array]:
   # TODO: add the option to optimize for different quantities.
   parameters = schedule(times)
-  _, summary = simulate_ising(parameters, initial_spins, seed)
-  log_prob = summary.forward_log_prob.sum()
-  entropy_production = summary.entropy_production.sum()
-  gradient_estimator = log_prob * jax.lax.stop_gradient(entropy_production) + entropy_production
+  final_state, summary = simulate_ising(parameters, initial_spins, seed)
+  trajectory_log_prob = summary.forward_log_prob.sum()
+  trajectory_entropy_production = summary.entropy_production.sum()
+
+  # We have to include an extra term that accounts for the difference in initial and final energy/probability.
+  # We could consider omitting the initial state here since it is fixed.
+  initial_state = IsingState(initial_spins, map_slice(parameters, 0))
+  endpoint_entropy_production = log_prob(initial_state) - log_prob(final_state)
+
+  entropy_production = endpoint_entropy_production + trajectory_entropy_production
+
+  # Note that "endpoints" are included in the entropy production but not the log probability.
+  gradient_estimator = trajectory_log_prob * jax.lax.stop_gradient(entropy_production) + entropy_production
   return gradient_estimator, summary
