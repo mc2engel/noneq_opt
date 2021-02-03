@@ -134,7 +134,8 @@ def update(state: IsingState,
 
 def simulate_ising(parameters: IsingParameters,
                    initial_spins: jnp.array,
-                   seed: jnp.array
+                   seed: jnp.array,
+                   return_states: bool = False
   ) -> Callable[[IsingState, Tuple[IsingState, jnp.array]], Tuple[IsingState, IsingSummary]]:
   initial_state = IsingState(initial_spins, map_slice(parameters, 0))
   parameters_tail = map_slice(parameters, slice(1, None))
@@ -143,6 +144,8 @@ def simulate_ising(parameters: IsingParameters,
   def _step(state, parameters_seed):
     parameters, seed = parameters_seed
     new_state, summary  = update(state, parameters, seed)
+    if return_states:
+      return new_state, summary, new_state
     return new_state, summary
   return jax.lax.scan(_step, initial_state, parameters_seeds)
 
