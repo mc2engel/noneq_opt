@@ -125,6 +125,10 @@ class TestSimulation:
     np.testing.assert_allclose(actual_proportion, expected_proportion, atol=.05)
 
   @pytest.mark.parametrize(
+    'loss_function',
+    [ising.total_work, ising.total_entropy_production]
+  )
+  @pytest.mark.parametrize(
     ['schedule', 'times', 'initial_spins', 'seed'],
     [
       (ising.IsingSchedule(log_temp=p10n.Constant(1.), field=p10n.Chebyshev(jnp.ones(8))),
@@ -133,10 +137,10 @@ class TestSimulation:
        jax.random.PRNGKey(0)),
     ]
   )
-  def test_estimate_gradient(self, schedule, times, initial_spins, seed):
+  def test_estimate_gradient(self, loss_function, schedule, times, initial_spins, seed):
     # TODO: figure out a way to validate the gradient estimates. For now, we just verify that the code runs and produces
     # non-zero values.
-    grad, _ = jax.jit(ising.estimate_gradient)(schedule, times, initial_spins, seed)
+    grad, _ = jax.jit(ising.estimate_gradient(loss_function))(schedule, times, initial_spins, seed)
     flat_grad = jax.tree_leaves(grad)
     for g in flat_grad:
       assert g.all(), f'Got zero values for gradient: {grad}.'
