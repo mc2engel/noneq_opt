@@ -4,6 +4,7 @@ import functools
 from typing import Iterable, NamedTuple, Tuple, Callable
 
 import jax
+import jax.experimental.optimizers as jopt
 import jax.numpy as jnp
 
 from tensorflow_probability.substrates import jax as tfp
@@ -146,24 +147,66 @@ def simulate_ising(parameters: IsingParameters,
   return jax.lax.scan(_step, initial_state, parameters_seeds)
 
 
-@functools.partial(jax.grad, has_aux=True)
-def estimate_gradient(schedule: IsingSchedule,
-                      times: jnp.array,
-                      initial_spins: jnp.array,
-                      seed: jnp.array) -> Tuple[jnp.array, jnp.array]:
-  # TODO: add the option to optimize for different quantities.
-  parameters = schedule(times)
-  final_state, summary = simulate_ising(parameters, initial_spins, seed)
-  trajectory_log_prob = summary.forward_log_prob.sum()
+# A `LossFn` maps (initial state, final_state, trajectory summary) to a scalar loss.
+LossFn = Callable[[IsingState, IsingState, IsingSummary], jnp.array]
+
+
+def estimate_gradient(loss_function: LossFn):
+  @functools.partial(jax.grad, has_aux=True)
+  def _estimate_gradient(schedule: IsingSchedule,
+                         times: jnp.array,
+                         initial_spins: jnp.array,
+                         seed: jnp.array) -> Tuple[jnp.array, jnp.array]:
+    parameters = schedule(times)
+    final_state, summary = simulate_ising(parameters, initial_spins, seed)
+    trajectory_log_prob = summary.forward_log_prob.sum()
+    initial_state = IsingState(initial_spins, map_slice(parameters, 0))
+    loss = loss_function(initial_state, final_state, summary)
+    gradient_estimator = trajectory_log_prob * jax.lax.stop_gradient(loss) + loss
+    return gradient_estimator, summary
+  return _estimate_gradient
+
+
+
+def total_entropy_production(initial_state: IsingState,
+                             final_state: IsingState,
+                             summary: IsingSummary) -> jnp.array:
   trajectory_entropy_production = summary.entropy_production.sum()
 
   # We have to include an extra term that accounts for the difference in initial and final energy/probability.
-  # We could consider omitting the initial state here since it is fixed.
-  initial_state = IsingState(initial_spins, map_slice(parameters, 0))
+  # Note that these are unnormalized log probabilities, so this calculation assumes that the start state and
+  # end state have the same partition function.
   endpoint_entropy_production = log_prob(initial_state) - log_prob(final_state)
 
-  entropy_production = endpoint_entropy_production + trajectory_entropy_production
+  return endpoint_entropy_production + trajectory_entropy_production
 
-  # Note that "endpoints" are included in the entropy production but not the log probability.
-  gradient_estimator = trajectory_log_prob * jax.lax.stop_gradient(entropy_production) + entropy_production
-  return gradient_estimator, summary
+
+def total_work(initial_state: IsingState,
+               final_state: IsingState,
+               summary: IsingSummary) -> jnp.array:
+  return summary.work.sum()
+
+
+# A `TrainStepFn` takes (optimizer state, step, seed) and returns (new optimizer state, summary).
+TrainStepFn = Callable[[jopt.OptimizerState, jnp.array, jnp.array],
+                       Tuple[jopt.OptimizerState, IsingSummary]]
+
+
+def get_train_step(optimizer: jopt.Optimizer,
+                   initial_spins: jnp.array,
+                   batch_size: int,
+                   time_steps: int,
+                   loss_function: LossFn=total_entropy_production,
+  ) -> TrainStepFn:
+  mapped_gradient_estimate = jax.vmap(estimate_gradient(loss_function), [None, None, None, 0])
+  # TODO: consider taking `times` as an argument rather than assuming times in [0, 1].
+  times = jnp.linspace(0, 1, time_steps)
+  @jax.jit
+  def _train_step(opt_state, step, seed):
+    seeds = jax.random.split(seed, batch_size)
+    schedule = optimizer.params_fn(opt_state)
+    grads, summary = mapped_gradient_estimate(schedule, times, initial_spins, seeds)
+    mean_grad = jax.tree_map(lambda x: jnp.mean(x, 0), grads)
+    opt_state = optimizer.update_fn(step, mean_grad, opt_state)
+    return opt_state, summary
+  return _train_step
