@@ -196,9 +196,10 @@ def get_train_step(optimizer: jopt.Optimizer,
                    initial_spins: jnp.array,
                    batch_size: int,
                    time_steps: int,
-                   loss_function=total_entropy_production: LossFn,
+                   loss_function: LossFn=total_entropy_production,
   ) -> TrainStepFn:
   mapped_gradient_estimate = jax.vmap(estimate_gradient(loss_function), [None, None, None, 0])
+  # TODO: consider taking `times` as an argument rather than assuming times in [0, 1].
   times = jnp.linspace(0, 1, time_steps)
   @jax.jit
   def _train_step(opt_state, step, seed):
