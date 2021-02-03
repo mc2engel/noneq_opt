@@ -4,6 +4,7 @@ import functools
 from typing import Iterable, NamedTuple, Tuple, Callable
 
 import jax
+import jax.experimental.optimizers as jopt
 import jax.numpy as jnp
 
 from tensorflow_probability.substrates import jax as tfp
@@ -186,3 +187,25 @@ def total_work(initial_state: IsingState,
   return summary.work.sum()
 
 
+# A `TrainStepFn` takes (optimizer state, step, seed) and returns (new optimizer state, summary).
+TrainStepFn = Callable[[jopt.OptimizerState, jnp.array, jnp.array],
+                       Tuple[jopt.OptimizerState, IsingSummary]]
+
+
+def get_train_step(optimizer: jopt.Optimizer,
+                   initial_spins: jnp.array,
+                   batch_size: int,
+                   time_steps: int,
+                   loss_function=total_entropy_production: LossFn,
+  ) -> TrainStepFn:
+  mapped_gradient_estimate = jax.vmap(estimate_gradient(loss_function), [None, None, None, 0])
+  times = jnp.linspace(0, 1, time_steps)
+  @jax.jit
+  def _train_step(opt_state, step, seed):
+    seeds = jax.random.split(seed, batch_size)
+    schedule = optimizer.params_fn(opt_state)
+    grads, summary = mapped_gradient_estimate(schedule, times, initial_spins, seeds)
+    mean_grad = jax.tree_map(lambda x: jnp.mean(x, 0), grads)
+    opt_state = optimizer.update_fn(step, mean_grad, opt_state)
+    return opt_state, summary
+  return _train_step
