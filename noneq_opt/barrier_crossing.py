@@ -53,3 +53,10 @@ def bistable_molecule(displacement_fn: space.DisplacementFn,
     log_r = - beta * (k_r * jnp.square(d_r) / 2 + delta_e)
     return - (jax.scipy.special.logsumexp(jnp.stack([log_l, log_r], axis=0), axis=0) / beta).sum()
   return _bistable_molecule
+
+
+def sum_potentials(*components):
+  def _summed(position, t, **kwargs):
+    return sum([component(position, t, **kwargs)
+                for component in components])
+  return _summed
