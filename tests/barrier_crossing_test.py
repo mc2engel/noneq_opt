@@ -43,3 +43,25 @@ class TestPotentialFunctions:
       energy = potential(x, t)
       assert np.isfinite(energy)
       np.testing.assert_equal(energy.shape, ())
+
+
+  class TestBarrierCrossing:
+    @pytest.mark.parametrize(
+      ['temperature', 'gamma', 'total_time', 'time_steps', 'ndim', 'potential_location_fn'],
+      [
+        (1., 1., 10.,1000, 3, lambda t: t * jnp.ones(3)),
+        (3., .1, 2 * jnp.pi, 100, 2, lambda t: jnp.sin(t) * jnp.ones(2)),
+      ]
+    )
+    def test_simulate_barrier_crossing_shape_test(
+        self, temperature, gamma, total_time, time_steps, ndim, potential_location_fn):
+      displacement_fn, shift_fn = space.free()
+
+      energy_fn = barrier_crossing.potential(displacement_fn, potential_location_fn)
+      simulate = barrier_crossing.simulate_barrier_crossing(
+        energy_fn, shift_fn, temperature, gamma, total_time, time_steps)
+      summary = simulate(jax.random.PRNGKey(0), jnp.zeros(ndim))
+      np.testing.assert_equal(summary.energy.shape, (time_steps,))
+      np.testing.assert_equal(summary.work.shape, (time_steps,))
+      np.testing.assert_equal(summary.time.shape, (time_steps,))
+      np.testing.assert_equal(summary.state.position.shape, (time_steps, ndim))
