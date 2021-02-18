@@ -41,6 +41,8 @@ class IsingSummary(NamedTuple):
   energy: jnp.array
 
 
+# TODO: move these to `utils` or similar.
+
 def map_slice(x, idx):
   return jax.tree_map(lambda y: y[idx], x)
 
@@ -199,7 +201,7 @@ def get_train_step(optimizer: jopt.Optimizer,
                    initial_spins: jnp.array,
                    batch_size: int,
                    time_steps: int,
-                   loss_function: LossFn=total_entropy_production,
+                   loss_function: LossFn = total_entropy_production,
   ) -> TrainStepFn:
   mapped_gradient_estimate = jax.vmap(estimate_gradient(loss_function), [None, None, None, 0])
   # TODO: consider taking `times` as an argument rather than assuming times in [0, 1].
