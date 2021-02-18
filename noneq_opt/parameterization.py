@@ -23,6 +23,9 @@ apply only to the `variables` of each class. As an example, we might want a
 piecewise linear function with fixed endpoints; the endpoints of each linear
 component would be `variables`, but the endpoints of the entire function are
 `constants`.
+
+NOTE: all of these classes work well for scalar -> scalar functions, but there is some inconsistency in how they
+handle scalar -> vector mappings. TODO: fix this!
 """
 
 
