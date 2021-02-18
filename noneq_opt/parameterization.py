@@ -137,6 +137,7 @@ def chebyshev_coefficients(degree):
 
 
 class Chebyshev(Parameterization):
+  # Weights must have shape `[ndim, degree]`.
   weights: jnp.array
 
   @property
@@ -149,7 +150,7 @@ class Chebyshev(Parameterization):
 
   @property
   def degree(self):
-    return self.weights.shape[0] - 1
+    return self.weights.shape[-1] - 1
 
   @property
   def coefficients(self):
@@ -166,12 +167,11 @@ class Chebyshev(Parameterization):
       _multiply_by_x, ones, None, length=self.degree, reverse=True)
     return jnp.concatenate([powers, ones[jnp.newaxis]], axis=0)
 
-
   def __call__(self, x):
     x = 2 * x - 1  # Rescale [0, 1] -> [-1, 1].
     x_powers = self._powers(x)
     return jnp.einsum(
-      'w,wp,p...->...', self.weights, self.coefficients, x_powers)
+      '...w,wp,p...->...', self.weights, self.coefficients, x_powers)
 
 
 class ChangeDomain(Parameterization):
