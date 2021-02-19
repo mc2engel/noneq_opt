@@ -23,6 +23,9 @@ apply only to the `variables` of each class. As an example, we might want a
 piecewise linear function with fixed endpoints; the endpoints of each linear
 component would be `variables`, but the endpoints of the entire function are
 `constants`.
+
+NOTE: all of these classes work well for scalar -> scalar functions, but there is some inconsistency in how they
+handle scalar -> vector mappings. TODO: fix this!
 """
 
 
@@ -137,6 +140,7 @@ def chebyshev_coefficients(degree):
 
 
 class Chebyshev(Parameterization):
+  # Weights must have shape `[ndim, degree]`.
   weights: jnp.array
 
   @property
@@ -149,7 +153,7 @@ class Chebyshev(Parameterization):
 
   @property
   def degree(self):
-    return self.weights.shape[0] - 1
+    return self.weights.shape[-1] - 1
 
   @property
   def coefficients(self):
@@ -166,12 +170,11 @@ class Chebyshev(Parameterization):
       _multiply_by_x, ones, None, length=self.degree, reverse=True)
     return jnp.concatenate([powers, ones[jnp.newaxis]], axis=0)
 
-
   def __call__(self, x):
     x = 2 * x - 1  # Rescale [0, 1] -> [-1, 1].
     x_powers = self._powers(x)
     return jnp.einsum(
-      'w,wp,p...->...', self.weights, self.coefficients, x_powers)
+      '...w,wp,p...->...', self.weights, self.coefficients, x_powers)
 
 
 class ChangeDomain(Parameterization):
