@@ -147,7 +147,7 @@ def simulate_ising(parameters: IsingParameters,
     parameters, seed = parameters_seed
     new_state, summary  = update(state, parameters, seed)
     if return_states:
-      return new_state, summary, new_state
+      return new_state, (summary, new_state)
     return new_state, summary
   return jax.lax.scan(_step, initial_state, parameters_seeds)
 
