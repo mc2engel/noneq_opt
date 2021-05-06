@@ -144,7 +144,6 @@ def total_work(initial_state: simulate.BrownianState,
 
 def estimate_gradient(trap_fn: TrapFn,
                       molecule: EnergyFn,
-                      x0: jnp.array,
                       total_time: Scalar,
                       time_steps: int,
                       mass: Scalar,
@@ -154,6 +153,7 @@ def estimate_gradient(trap_fn: TrapFn,
                       loss_fn: LossFn = total_work):
   @functools.partial(jax.grad, has_aux=True)
   def _estimate_gradient(location_schedule: LocationFn,
+			 x0: jnp.array,
                          key: jnp.array):
     trap = trap_fn(location_schedule)
     energy_fn = sum_potentials(trap, molecule)
@@ -181,7 +181,6 @@ TrainStepFn = Callable[[jopt.OptimizerState, jnp.array, jnp.array],
 def get_train_step(optimizer: jopt.Optimizer,
                    trap_fn: TrapFn,
                    molecule: EnergyFn,
-                   x0: jnp.array,
                    total_time: Scalar,
                    time_steps: int,
                    mass: Scalar,
@@ -191,14 +190,14 @@ def get_train_step(optimizer: jopt.Optimizer,
                    shift_fn: Optional[space.ShiftFn] = None,
                    loss_fn: LossFn = total_work,
   ) -> TrainStepFn:
-  gradient_estimator = estimate_gradient(trap_fn, molecule, x0, total_time, time_steps, mass,
+  gradient_estimator = estimate_gradient(trap_fn, molecule, total_time, time_steps, mass,
                                          temperature, gamma, shift_fn, loss_fn)
   mapped_gradient_estimate = jax.vmap(gradient_estimator, [None, 0])
   @jax.jit
-  def _train_step(opt_state, step, key):
+  def _train_step(opt_state, x0, step, key):
     keys = jax.random.split(key, batch_size)
     schedule = optimizer.params_fn(opt_state)
-    grads, summary = mapped_gradient_estimate(schedule, keys)
+    grads, summary = mapped_gradient_estimate(schedule, x0, keys)
     mean_grad = jax.tree_map(lambda x: jnp.mean(x, 0), grads)
     opt_state = optimizer.update_fn(step, mean_grad, opt_state)
     return opt_state, summary
