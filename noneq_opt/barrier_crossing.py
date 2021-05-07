@@ -192,7 +192,7 @@ def get_train_step(optimizer: jopt.Optimizer,
   ) -> TrainStepFn:
   gradient_estimator = estimate_gradient(trap_fn, molecule, total_time, time_steps, mass,
                                          temperature, gamma, shift_fn, loss_fn)
-  mapped_gradient_estimate = jax.vmap(gradient_estimator, [None, 0])
+  mapped_gradient_estimate = jax.vmap(gradient_estimator, [None, 0, 0])
   @jax.jit
   def _train_step(opt_state, x0, step, key):
     keys = jax.random.split(key, batch_size)
@@ -202,5 +202,6 @@ def get_train_step(optimizer: jopt.Optimizer,
     opt_state = optimizer.update_fn(step, mean_grad, opt_state)
     return opt_state, summary
   return _train_step
+
 
 
