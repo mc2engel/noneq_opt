@@ -143,6 +143,7 @@ def simulate_ising(parameters: IsingParameters,
   parameters_tail = map_slice(parameters, slice(1, None))
   seeds = jax.random.split(seed, parameters.field.shape[0] - 1)
   parameters_seeds = (parameters_tail, seeds)
+  @jax.checkpoint
   def _step(state, parameters_seed):
     parameters, seed = parameters_seed
     new_state, summary  = update(state, parameters, seed)
