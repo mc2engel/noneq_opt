@@ -150,7 +150,7 @@ def simulate_ising(parameters: IsingParameters,
     if return_states:
       return new_state, (summary, new_state)
     return new_state, summary
-  return jax.lax.scan(_step, initial_state, parameters_seeds)
+  return jax.lax.scan(jax.remat(_step), initial_state, parameters_seeds)
 
 
 # A `LossFn` maps (initial state, final_state, trajectory summary) to a scalar loss.
