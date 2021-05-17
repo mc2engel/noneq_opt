@@ -1,6 +1,4 @@
 """Control flow functions."""
-from typing import Iterable, NamedTuple, Tuple, Callable
-
 import jax
 import jax.numpy as jnp
 

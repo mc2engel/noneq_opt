@@ -1,16 +1,16 @@
 """Code for running and optimizing Ising simulations."""
 import functools
-
-from typing import Iterable, NamedTuple, Tuple, Callable
+from typing import Iterable, NamedTuple, Optional, Tuple, Callable
 
 import jax
 import jax.experimental.optimizers as jopt
 import jax.numpy as jnp
-
 from tensorflow_probability.substrates import jax as tfp
+
 tfd = tfp.distributions
 
-from . import parameterization as p10n
+from . import control_flow
+
 
 class IsingParameters(NamedTuple):
   log_temp: jnp.array
@@ -137,6 +137,7 @@ def update(state: IsingState,
 def simulate_ising(parameters: IsingParameters,
                    initial_spins: jnp.array,
                    seed: jnp.array,
+                   checkpoint_every: Optional[int] = None,
                    return_states: bool = False
   ) -> Callable[[IsingState, Tuple[IsingState, jnp.array]], Tuple[IsingState, IsingSummary]]:
   initial_state = IsingState(initial_spins, map_slice(parameters, 0))
@@ -149,21 +150,27 @@ def simulate_ising(parameters: IsingParameters,
     if return_states:
       return new_state, (summary, new_state)
     return new_state, summary
-  return jax.lax.scan(_step, initial_state, parameters_seeds)
+  if checkpoint_every is None:
+    scan = jax.lax.scan
+  else:
+    scan = functools.partial(control_flow.checkpoint_scan, checkpoint_every=checkpoint_every)
+  return scan(_step, initial_state, parameters_seeds)
 
 
 # A `LossFn` maps (initial state, final_state, trajectory summary) to a scalar loss.
 LossFn = Callable[[IsingState, IsingState, IsingSummary], jnp.array]
 
 
-def estimate_gradient(loss_function: LossFn):
+def estimate_gradient(loss_function: LossFn,
+                      checkpoint_every: Optional[int] = None):
   @functools.partial(jax.grad, has_aux=True)
   def _estimate_gradient(schedule: IsingSchedule,
                          times: jnp.array,
                          initial_spins: jnp.array,
-                         seed: jnp.array) -> Tuple[jnp.array, jnp.array]:
+                         seed: jnp.array
+    ) -> Tuple[jnp.array, jnp.array]:
     parameters = schedule(times)
-    final_state, summary = simulate_ising(parameters, initial_spins, seed)
+    final_state, summary = simulate_ising(parameters, initial_spins, seed, checkpoint_every)
     trajectory_log_prob = summary.forward_log_prob.sum()
     initial_state = IsingState(initial_spins, map_slice(parameters, 0))
     loss = loss_function(initial_state, final_state, summary)
@@ -202,8 +209,9 @@ def get_train_step(optimizer: jopt.Optimizer,
                    batch_size: int,
                    time_steps: int,
                    loss_function: LossFn = total_entropy_production,
+                   checkpoint_every: Optional[int] = None
   ) -> TrainStepFn:
-  mapped_gradient_estimate = jax.vmap(estimate_gradient(loss_function), [None, None, None, 0])
+  mapped_gradient_estimate = jax.vmap(estimate_gradient(loss_function, checkpoint_every), [None, None, None, 0])
   # TODO: consider taking `times` as an argument rather than assuming times in [0, 1].
   times = jnp.linspace(0, 1, time_steps)
   @jax.jit
