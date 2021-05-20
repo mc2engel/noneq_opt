@@ -7,7 +7,8 @@ setuptools.setup(
   license='MIT',
   packages=setuptools.find_packages(),
   install_requires=[
-    "jax",
+    # Remove restriction once TFP is fixed.
+    "jax<=0.2.11",
     "jax-md",
     "matplotlib",
     "numpy",
@@ -15,6 +16,6 @@ setuptools.setup(
     "pytest",
     "scipy",
     "seaborn",
-    "tensorflow_probability",
+    "distrax"
   ]
 )

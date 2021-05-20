@@ -4,9 +4,7 @@ from typing import Union, Callable
 import jax
 import jax.numpy as jnp
 import jax_md as jmd
-
-from tensorflow_probability.substrates import jax as tfp
-tfd = tfp.distributions
+import distrax
 
 
 # Below is a custom Brownian simulator. It is identical to the one provided by JAX MD except that `BrownianState`
@@ -71,7 +69,7 @@ def brownian(energy_or_force: PotentialFn,
     F = force_fn(state.position, t=t, **kwargs)
     mean = F * nu * dt
     variance = jnp.float32(2) * T_schedule(t) * dt * nu
-    return tfd.Normal(mean, jnp.sqrt(variance))
+    return distrax.Normal(mean, jnp.sqrt(variance))
 
   def apply_fn(state, t=jnp.float32(0), **kwargs):
     dist = _dist(state, t, **kwargs)
@@ -80,7 +78,7 @@ def brownian(energy_or_force: PotentialFn,
     # We have to stop gradients here, otherwise the gradient with respect to
     # energy/force is zero. The following is a simple repro of the issue:
     #  def sample_log_prob(mean, key):
-    #    d = tfd.Normal(mean, 1.)
+    #    d = distrax.Normal(mean, 1.)
     #    s = d.sample(seed=key)
     #    return d.log_prob(s)
     #  jax.grad(sample_log_prob)(0., key)  # Always 0 !

@@ -7,11 +7,7 @@ import jax.numpy as jnp
 import jax.experimental.optimizers as jopt
 from jax_md import space, energy
 
-from tensorflow_probability.substrates import jax as tfp
-
 from noneq_opt import simulate
-
-tfd = tfp.distributions
 
 ### Potential Functions ###
 # These functions define potentials. They close over various parameters and return a function maps (position, time) to

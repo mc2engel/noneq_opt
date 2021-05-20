@@ -5,9 +5,7 @@ from typing import Iterable, NamedTuple, Optional, Tuple, Callable
 import jax
 import jax.experimental.optimizers as jopt
 import jax.numpy as jnp
-from tensorflow_probability.substrates import jax as tfp
-
-tfd = tfp.distributions
+import distrax
 
 from . import control_flow
 
@@ -52,7 +50,7 @@ def map_stack(xs, axis=0):
 
 
 def random_spins(shape, p, seed):
-  return 2 * tfd.Bernoulli(probs=p).sample(shape, seed=seed) - 1
+  return 2 * distrax.Bernoulli(probs=p).sample(sample_shape=shape, seed=seed) - 1
 
 
 def sum_neighbors(spins: jnp.array) -> jnp.array:
@@ -96,7 +94,7 @@ def masked_update(state: IsingState,
                   seed: jnp.array) -> Tuple[IsingState, jnp.array, jnp.array]:
   """Compute random update and energy change for sites indicated by `mask`."""
   logits = flip_logits(state.spins, new_params)
-  flip_distribution = tfd.Bernoulli(logits=logits)
+  flip_distribution = distrax.Bernoulli(logits=logits)
   flips = flip_distribution.sample(seed=seed) * mask
   forward_log_prob = (flip_distribution.log_prob(flips) * mask).sum()
   new_state = IsingState(state.spins * (1 - 2 * flips), new_params)
@@ -104,7 +102,7 @@ def masked_update(state: IsingState,
   # I believe `reverse_logits` should be computed using `new_params`.
   # reverse_logits = get_flip_logits(new_state, state.params)
   reverse_logits = flip_logits(new_state.spins, new_params)
-  reverse_distribution = tfd.Bernoulli(logits=reverse_logits)
+  reverse_distribution = distrax.Bernoulli(logits=reverse_logits)
   reverse_log_prob = (reverse_distribution.log_prob(flips) * mask).sum()
 
   return new_state, forward_log_prob, reverse_log_prob
