@@ -36,6 +36,8 @@ class IsingSummary(NamedTuple):
   reverse_log_prob: jnp.array
   entropy_production: jnp.array
   magnetization: jnp.array
+  spin_sum: jnp.array
+  edge_sum: jnp.array
   energy: jnp.array
 
 
@@ -63,6 +65,13 @@ def sum_neighbors(spins: jnp.array) -> jnp.array:
       rolled.append(jnp.roll(spins, shift, axis))
   return sum(rolled)
 
+def sum_edge_product(spins: jnp.array) -> jnp.array:
+  """Sum over endges of the product of the incident spins."""
+  ndim = spins.ndim
+  rolled = []
+  for axis in range(ndim):
+    rolled.append(jnp.roll(spins, 1, axis))
+  return (spins * sum(rolled)).sum()
 
 def energy(state: IsingState):
   return (- state.spins * (sum_neighbors(state.spins) / 2 + state.params.field)).sum()
@@ -122,12 +131,16 @@ def update(state: IsingState,
   forward_log_prob = even_fwd_log_prob + odd_fwd_log_prob
   reverse_log_prob = even_rev_log_prob + odd_rev_log_prob
   entropy_production = forward_log_prob - reverse_log_prob
+  spin_sum = state.spins.sum()
+  edge_sum = sum_edge_product(state.spins)
   summary = IsingSummary(work=intermediate_energy - initial_energy,
                          dissipated_heat=intermediate_energy - final_energy,
                          forward_log_prob=forward_log_prob,
                          reverse_log_prob=reverse_log_prob,
                          entropy_production=entropy_production,
                          magnetization=magnetization,
+                         spin_sum=spin_sum,
+                         edge_sum=edge_sum,
                          energy=final_energy)
   return state, summary
 
