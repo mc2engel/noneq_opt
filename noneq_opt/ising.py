@@ -36,8 +36,6 @@ class IsingSummary(NamedTuple):
   reverse_log_prob: jnp.array
   entropy_production: jnp.array
   magnetization: jnp.array
-  spin_sum: jnp.array
-  edge_sum: jnp.array
   energy: jnp.array
 
 
@@ -64,14 +62,6 @@ def sum_neighbors(spins: jnp.array) -> jnp.array:
     for shift in [-1, 1]:
       rolled.append(jnp.roll(spins, shift, axis))
   return sum(rolled)
-
-def sum_edge_product(spins: jnp.array) -> jnp.array:
-  """Sum over endges of the product of the incident spins."""
-  ndim = spins.ndim
-  rolled = []
-  for axis in range(ndim):
-    rolled.append(jnp.roll(spins, 1, axis))
-  return (spins * sum(rolled)).sum()
 
 def energy(state: IsingState):
   return (- state.spins * (sum_neighbors(state.spins) / 2 + state.params.field)).sum()
@@ -131,16 +121,12 @@ def update(state: IsingState,
   forward_log_prob = even_fwd_log_prob + odd_fwd_log_prob
   reverse_log_prob = even_rev_log_prob + odd_rev_log_prob
   entropy_production = forward_log_prob - reverse_log_prob
-  spin_sum = state.spins.sum()
-  edge_sum = sum_edge_product(state.spins)
   summary = IsingSummary(work=intermediate_energy - initial_energy,
                          dissipated_heat=intermediate_energy - final_energy,
                          forward_log_prob=forward_log_prob,
                          reverse_log_prob=reverse_log_prob,
                          entropy_production=entropy_production,
                          magnetization=magnetization,
-                         spin_sum=spin_sum,
-                         edge_sum=edge_sum,
                          energy=final_energy)
   return state, summary
 
@@ -171,22 +157,48 @@ def simulate_ising(parameters: IsingParameters,
 # A `LossFn` maps (initial state, final_state, trajectory summary) to a scalar loss.
 LossFn = Callable[[IsingState, IsingState, IsingSummary], jnp.array]
 
+def value_and_jacfwd(f, argnums=0):
+  # TODO: make this only run one pass.
+  jacobian = jax.jacfwd(f, argnums=argnums)
+  def _val_and_jac(*args, **kwargs):
+    val = f(*args, **kwargs)
+    jac = jacobian(*args, **kwargs)
+    return val, jac
+  return _val_and_jac
 
-def estimate_gradient(loss_function: LossFn,
-                      checkpoint_every: Optional[int] = None):
-  @functools.partial(jax.grad, has_aux=True)
+def estimate_gradient(loss_function):
+
+  def loss_and_log_prob(schedule: IsingSchedule,
+                        times: jnp.array,
+                        initial_spins: jnp.array,
+                        seed: jnp.array
+    ) -> Tuple[jnp.array, jnp.array, IsingSummary]:
+    parameters = schedule(times)
+    final_state, summary = simulate_ising(parameters, initial_spins, seed)
+    trajectory_log_prob = summary.forward_log_prob.sum()
+    initial_state = IsingState(initial_spins, map_slice(parameters, 0))
+    loss = loss_function(initial_state, final_state, summary)
+    total_forward_log_prob = summary.forward_log_prob.sum(0)
+    return loss, total_forward_log_prob, summary
+
   def _estimate_gradient(schedule: IsingSchedule,
                          times: jnp.array,
                          initial_spins: jnp.array,
                          seed: jnp.array
-    ) -> Tuple[jnp.array, jnp.array]:
-    parameters = schedule(times)
-    final_state, summary = simulate_ising(parameters, initial_spins, seed, checkpoint_every)
-    trajectory_log_prob = summary.forward_log_prob.sum()
-    initial_state = IsingState(initial_spins, map_slice(parameters, 0))
-    loss = loss_function(initial_state, final_state, summary)
-    gradient_estimator = trajectory_log_prob * jax.lax.stop_gradient(loss) + loss
-    return gradient_estimator, summary
+    ) -> Tuple[IsingParameters, IsingSummary]:
+    loss_and_prob_and_jacobians = value_and_jacfwd(loss_and_log_prob)
+    ((loss, _, summary),
+     (loss_jac, log_prob_jac, _)) = loss_and_prob_and_jacobians(schedule,
+                                                                times,
+                                                                initial_spins,
+                                                                seed)
+    # ∇_est = ∇log(p) x loss + ∇loss
+    gradient_estimate = jax.tree_multimap(
+        lambda x, y: x + y,
+        jax.tree_map(lambda x: loss * x, log_prob_jac),
+        loss_jac)
+    return gradient_estimate, summary
+
   return _estimate_gradient
 
 
@@ -219,10 +231,9 @@ def get_train_step(optimizer: jopt.Optimizer,
                    initial_spins: jnp.array,
                    batch_size: int,
                    time_steps: int,
-                   loss_function: LossFn = total_entropy_production,
-                   checkpoint_every: Optional[int] = None
+                   loss_function: LossFn = total_entropy_production
   ) -> TrainStepFn:
-  mapped_gradient_estimate = jax.vmap(estimate_gradient(loss_function, checkpoint_every), [None, None, None, 0])
+  mapped_gradient_estimate = jax.vmap(estimate_gradient(loss_function), [None, None, None, 0])
   # TODO: consider taking `times` as an argument rather than assuming times in [0, 1].
   times = jnp.linspace(0, 1, time_steps)
   @jax.jit
