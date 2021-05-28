@@ -1,4 +1,6 @@
 """Tests for `noneq_opt.parameterization`."""
+import functools
+
 import jax
 import jax.numpy as jnp
 import jax.experimental.optimizers as jopt
@@ -137,13 +139,10 @@ class TestSimulation:
        jax.random.PRNGKey(0)),
     ]
   )
-  def test_estimate_gradient(self, loss_function, schedule, times, initial_spins, seed):
-    # TODO: figure out a way to validate the gradient estimates. For now, we just verify that the code runs and produces
-    # non-zero values.
-    grad, _ = jax.jit(ising.estimate_gradient(loss_function))(schedule, times, initial_spins, seed)
-    flat_grad = jax.tree_leaves(grad)
-    for g in flat_grad:
-      assert g.all(), f'Got zero values for gradient: {grad}.'
+  def test_gradient_estimates_equivalent(self, loss_function, schedule, times, initial_spins, seed):
+    fwd_grad, _ = jax.jit(ising.estimate_gradient_fwd(loss_function))(schedule, times, initial_spins, seed)
+    rev_grad, _ = jax.jit(ising.estimate_gradient_rev(loss_function))(schedule, times, initial_spins, seed)
+    jax.tree_multimap(functools.partial(np.testing.assert_allclose, rtol=1e-4), fwd_grad, rev_grad)
 
 
   @pytest.mark.parametrize(
@@ -160,11 +159,15 @@ class TestSimulation:
        jax.random.PRNGKey(0)),
     ]
   )
-  def test_training_step(self, loss_function, schedule, initial_spins, batch_size, time_steps, seed):
+  @pytest.mark.parametrize(
+    'mode',
+    ['fwd', 'rev']
+  )
+  def test_training_step(self, loss_function, schedule, initial_spins, batch_size, time_steps, seed, mode):
     """Tests that the training step runs and produces an optimizer state with finite values after 20 steps."""
     optimizer = jopt.adam(1e-3)
     state = optimizer.init_fn(schedule)
-    train_step = ising.get_train_step(optimizer, initial_spins, batch_size, time_steps, loss_function)
+    train_step = ising.get_train_step(optimizer, initial_spins, batch_size, time_steps, loss_function, mode)
     for step in range(20):
       seed, split = jax.random.split(seed)
       state, summary = train_step(state, step, split)

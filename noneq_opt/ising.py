@@ -158,7 +158,33 @@ def simulate_ising(parameters: IsingParameters,
 # A `LossFn` maps (initial state, final_state, trajectory summary) to a scalar loss.
 LossFn = Callable[[IsingState, IsingState, IsingSummary], jnp.array]
 
-def estimate_gradient(loss_function):
+def estimate_gradient_rev(loss_function: LossFn,
+                          checkpoint_every: Optional[int] = None):
+  """Estimates gradients using reverse-mode differentiation.
+
+  This is faster than `estimate_gradient_fwd` but consumes much more memory.
+  """
+  @functools.partial(jax.grad, has_aux=True)
+  def _estimate_gradient(schedule: IsingSchedule,
+                         times: jnp.array,
+                         initial_spins: jnp.array,
+                         seed: jnp.array
+    ) -> Tuple[jnp.array, jnp.array]:
+    parameters = schedule(times)
+    final_state, summary = simulate_ising(parameters, initial_spins, seed, checkpoint_every)
+    trajectory_log_prob = summary.forward_log_prob.sum()
+    initial_state = IsingState(initial_spins, map_slice(parameters, 0))
+    loss = loss_function(initial_state, final_state, summary)
+    gradient_estimator = trajectory_log_prob * jax.lax.stop_gradient(loss) + loss
+    return gradient_estimator, summary
+  return _estimate_gradient
+
+
+def estimate_gradient_fwd(loss_function):
+  """Estimates gradients using forward-mode differentiation.
+
+  This is slower than `estimate_gradient_rev` but much more memory efficient.
+  """
 
   def loss_and_log_prob(schedule: IsingSchedule,
                         times: jnp.array,
@@ -193,7 +219,6 @@ def estimate_gradient(loss_function):
   return _estimate_gradient
 
 
-
 def total_entropy_production(initial_state: IsingState,
                              final_state: IsingState,
                              summary: IsingSummary) -> jnp.array:
@@ -222,9 +247,17 @@ def get_train_step(optimizer: jopt.Optimizer,
                    initial_spins: jnp.array,
                    batch_size: int,
                    time_steps: int,
-                   loss_function: LossFn = total_entropy_production
+                   loss_function: LossFn = total_entropy_production,
+                   mode: str = 'rev'
   ) -> TrainStepFn:
-  mapped_gradient_estimate = jax.vmap(estimate_gradient(loss_function), [None, None, None, 0])
+  if mode == 'rev':
+    # TODO: consider adding a `checkpoint_every` arg for reverse mode.
+    gradient_estimator = estimate_gradient_rev(loss_function)
+  elif mode == 'fwd':
+    gradient_estimator = estimate_gradient_fwd(loss_function)
+  else:
+    raise ValueError(f'`mode` must be either "fwd" or "rev"; got {mode}.')
+  mapped_gradient_estimate = jax.vmap(gradient_estimator, [None, None, None, 0])
   # TODO: consider taking `times` as an argument rather than assuming times in [0, 1].
   times = jnp.linspace(0, 1, time_steps)
   @jax.jit
