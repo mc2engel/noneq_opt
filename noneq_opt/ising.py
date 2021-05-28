@@ -8,6 +8,7 @@ import jax.numpy as jnp
 import distrax
 
 from . import control_flow
+from . import gradients
 
 
 class IsingParameters(NamedTuple):
@@ -157,15 +158,6 @@ def simulate_ising(parameters: IsingParameters,
 # A `LossFn` maps (initial state, final_state, trajectory summary) to a scalar loss.
 LossFn = Callable[[IsingState, IsingState, IsingSummary], jnp.array]
 
-def value_and_jacfwd(f, argnums=0):
-  # TODO: make this only run one pass.
-  jacobian = jax.jacfwd(f, argnums=argnums)
-  def _val_and_jac(*args, **kwargs):
-    val = f(*args, **kwargs)
-    jac = jacobian(*args, **kwargs)
-    return val, jac
-  return _val_and_jac
-
 def estimate_gradient(loss_function):
 
   def loss_and_log_prob(schedule: IsingSchedule,
@@ -175,7 +167,6 @@ def estimate_gradient(loss_function):
     ) -> Tuple[jnp.array, jnp.array, IsingSummary]:
     parameters = schedule(times)
     final_state, summary = simulate_ising(parameters, initial_spins, seed)
-    trajectory_log_prob = summary.forward_log_prob.sum()
     initial_state = IsingState(initial_spins, map_slice(parameters, 0))
     loss = loss_function(initial_state, final_state, summary)
     total_forward_log_prob = summary.forward_log_prob.sum(0)
@@ -186,7 +177,7 @@ def estimate_gradient(loss_function):
                          initial_spins: jnp.array,
                          seed: jnp.array
     ) -> Tuple[IsingParameters, IsingSummary]:
-    loss_and_prob_and_jacobians = value_and_jacfwd(loss_and_log_prob)
+    loss_and_prob_and_jacobians = gradients.value_and_jacfwd(loss_and_log_prob)
     ((loss, _, summary),
      (loss_jac, log_prob_jac, _)) = loss_and_prob_and_jacobians(schedule,
                                                                 times,

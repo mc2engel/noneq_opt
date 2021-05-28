@@ -137,14 +137,10 @@ class TestSimulation:
        jax.random.PRNGKey(0)),
     ]
   )
-  @pytest.mark.parametrize(
-    'checkpoint_every',
-    [None, 2, 4]
-  )
-  def test_estimate_gradient(self, loss_function, schedule, times, initial_spins, seed, checkpoint_every):
+  def test_estimate_gradient(self, loss_function, schedule, times, initial_spins, seed):
     # TODO: figure out a way to validate the gradient estimates. For now, we just verify that the code runs and produces
     # non-zero values.
-    grad, _ = jax.jit(ising.estimate_gradient(loss_function, checkpoint_every))(schedule, times, initial_spins, seed)
+    grad, _ = jax.jit(ising.estimate_gradient(loss_function))(schedule, times, initial_spins, seed)
     flat_grad = jax.tree_leaves(grad)
     for g in flat_grad:
       assert g.all(), f'Got zero values for gradient: {grad}.'
