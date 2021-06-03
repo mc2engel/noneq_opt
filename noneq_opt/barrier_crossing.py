@@ -5,9 +5,9 @@ from typing import Callable, Union, NamedTuple, Optional, Tuple
 import jax
 import jax.numpy as jnp
 import jax.experimental.optimizers as jopt
-from jax_md import space, energy
+from jax_md import space, energy, simulate
 
-from noneq_opt import simulate
+#from noneq_opt import simulate
 
 ### Potential Functions ###
 # These functions define potentials. They close over various parameters and return a function maps (position, time) to
@@ -112,7 +112,7 @@ def simulate_barrier_crossing(energy_fn: EnergyFn,
 
   def step(_state, t):
     wrk, nrg = wrk_and_nrg(_state.position, t)
-    new_state = apply_fn(_state, t)
+    new_state = apply_fn(_state, t=t)
     return new_state, BarrierCrossingSummary(new_state, wrk, nrg, t)
 
   @jax.jit
@@ -160,12 +160,13 @@ def estimate_gradient(trap_fn: TrapFn,
                                                   time_steps,
                                                   shift_fn)
     # TODO: it is awkward that we compute initial state here _and_ inside `simulate`. Consider fixing this.
-    initial_state = simulate.BrownianState(x0, mass, key, 0.)
+    initial_state = simulate.BrownianState(x0, mass, key)
     summary = simulate_crossing(key, x0, mass)
     final_state = map_slice(summary.state, -1)
     loss = loss_fn(initial_state, final_state, summary)
-    log_prob = summary.state.log_prob.sum()
-    gradient_estimator = log_prob * jax.lax.stop_gradient(loss) + loss
+    #log_prob = summary.state.log_prob.sum()
+    #gradient_estimator = log_prob * jax.lax.stop_gradient(loss) + loss
+    gradient_estimator = loss
     return gradient_estimator, summary
   return _estimate_gradient
 
