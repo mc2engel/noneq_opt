@@ -40,7 +40,10 @@ def potential(location_fn: LocationFnOrConstant,
     displacement_fn, _ = space.free()
   location_fn = _get_location_fn(location_fn)
   def _potential(position, t, **unused_kwargs):
-    d = space.distance(displacement_fn(position, location_fn(t)))
+    loc = location_fn(t)
+    if loc.ndim == 0:
+      loc = jnp.expand_dims(loc, 0)
+    d = space.distance(displacement_fn(position, loc))
     return energy.simple_spring(d, epsilon=k, length=0).sum()
   return _potential
 
