@@ -82,17 +82,24 @@ class TestPotentialFunctions:
         ),
       ]
     )
-    def test_estimate_gradient(self, trap_fn, molecule, x0, location_schedule):
+    @pytest.mark.parametrize(
+      ['estimate_gradient'],
+      [
+        (barrier_crossing.estimate_gradient_reinforce,),
+        (barrier_crossing.estimate_gradient_reparameterize,)
+      ]
+    )
+    def test_estimate_gradient(self, trap_fn, molecule, x0, location_schedule, estimate_gradient):
       # TODO: figure out a way to validate the gradient estimates. For now, we just verify that the code runs and produces
       # non-zero values.
 
-      grad_estimator = barrier_crossing.estimate_gradient(trap_fn=trap_fn,
-                                                          molecule=molecule,
-                                                          mass=1.,
-                                                          temperature=1.,
-                                                          gamma=1.,
-                                                          total_time=1.,
-                                                          time_steps=100)
+      grad_estimator = estimate_gradient(trap_fn=trap_fn,
+                                         molecule=molecule,
+                                         mass=1.,
+                                         temperature=1.,
+                                         gamma=1.,
+                                         total_time=1.,
+                                         time_steps=100)
       grad_estimator = jax.jit(grad_estimator)
       grad, summary = grad_estimator(location_schedule, x0, jax.random.PRNGKey(0))
       flat_grad = jax.tree_leaves(grad)
@@ -101,7 +108,7 @@ class TestPotentialFunctions:
 
 
     @pytest.mark.parametrize(
-      ['trap_fn', 'molecule', 'x0', 'location_schedule', 'batch_size', 'seed'],
+      ['trap_fn', 'molecule', 'x0', 'location_schedule', 'batch_size', 'gradient_estimation_method', 'seed'],
       [
         (
             barrier_crossing.potential,
@@ -109,6 +116,7 @@ class TestPotentialFunctions:
             jnp.zeros(1),
             p10n.Chebyshev(jnp.ones([1, 32])),
             64,
+            'reinforce',
             jax.random.PRNGKey(0)
         ),
         (
@@ -117,11 +125,13 @@ class TestPotentialFunctions:
             jnp.zeros(3),
             p10n.Chebyshev(jnp.ones([3, 32])),
             32,
+            'reparameterize',
             jax.random.PRNGKey(0)
         ),
       ]
     )
-    def test_training_step(self, trap_fn, molecule, x0, location_schedule, batch_size, seed):
+    def test_training_step(self, trap_fn, molecule, x0, location_schedule,
+                           batch_size, gradient_estimation_method, seed):
       """Tests that the training step runs and produces an optimizer state with finite values after 20 steps."""
       optimizer = jopt.adam(1e-3)
       state = optimizer.init_fn(location_schedule)
@@ -136,7 +146,8 @@ class TestPotentialFunctions:
                                                    mass=1.,
                                                    temperature=1.,
                                                    gamma=1.,
-                                                   batch_size=batch_size)
+                                                   batch_size=batch_size,
+                                                   gradient_estimation_method=gradient_estimation_method)
       for step in range(20):
         seed, split = jax.random.split(seed)
         state, summary = train_step(state, step, split)
