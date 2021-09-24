@@ -112,14 +112,14 @@ def simulate_barrier_crossing(energy_fn: EnergyFn,
 
   def step(_state, t):
     wrk, nrg = wrk_and_nrg(_state.position, t)
-    new_state = apply_fn(_state, t)
+    new_state = apply_fn(_state, t=t)
     return new_state, BarrierCrossingSummary(new_state, wrk, nrg, t)
 
   @jax.jit
   def _barrier_crossing(key, x0, mass=1.):
     state = init_fn(key, x0, mass)
-    _, summary = jax.lax.scan(step, state, times)
-    return summary
+    final_state, summary = jax.lax.scan(step, state, times)
+    return final_state, summary
 
   return _barrier_crossing
 
@@ -140,7 +140,6 @@ def total_work(initial_state: simulate.BrownianState,
 
 def estimate_gradient(trap_fn: TrapFn,
                       molecule: EnergyFn,
-                      x0: jnp.array,
                       total_time: Scalar,
                       time_steps: int,
                       mass: Scalar,
@@ -150,6 +149,7 @@ def estimate_gradient(trap_fn: TrapFn,
                       loss_fn: LossFn = total_work):
   @functools.partial(jax.grad, has_aux=True)
   def _estimate_gradient(location_schedule: LocationFn,
+                         x0: jnp.array,
                          key: jnp.array):
     trap = trap_fn(location_schedule)
     energy_fn = sum_potentials(trap, molecule)
@@ -161,7 +161,7 @@ def estimate_gradient(trap_fn: TrapFn,
                                                   shift_fn)
     # TODO: it is awkward that we compute initial state here _and_ inside `simulate`. Consider fixing this.
     initial_state = simulate.BrownianState(x0, mass, key, 0.)
-    summary = simulate_crossing(key, x0, mass)
+    _, summary = simulate_crossing(key, x0, mass)
     final_state = map_slice(summary.state, -1)
     loss = loss_fn(initial_state, final_state, summary)
     log_prob = summary.state.log_prob.sum()
@@ -178,8 +178,10 @@ def get_train_step(optimizer: jopt.Optimizer,
                    trap_fn: TrapFn,
                    molecule: EnergyFn,
                    x0: jnp.array,
-                   total_time: Scalar,
-                   time_steps: int,
+                   equilibration_time: Scalar,
+                   equilibration_time_steps: int,
+                   protocol_time: Scalar,
+                   protocol_time_steps: int,
                    mass: Scalar,
                    temperature: Scalar,
                    gamma: Scalar,
@@ -187,14 +189,19 @@ def get_train_step(optimizer: jopt.Optimizer,
                    shift_fn: Optional[space.ShiftFn] = None,
                    loss_fn: LossFn = total_work,
   ) -> TrainStepFn:
-  gradient_estimator = estimate_gradient(trap_fn, molecule, x0, total_time, time_steps, mass,
-                                         temperature, gamma, shift_fn, loss_fn)
-  mapped_gradient_estimate = jax.vmap(gradient_estimator, [None, 0])
-  @jax.jit
+  still = lambda *_, **__: x0  # TODO(jamieas): this assumes `x0` is the starting position of the trap.
+  equilibrate = simulate_barrier_crossing(sum_potentials(trap_fn(still), molecule), temperature,
+                                          gamma, equilibration_time, equilibration_time_steps)
+  mapped_equilibrate = jax.vmap(equilibrate, [0, None, None])  # [key, x0, mass]
+  gradient_estimator = estimate_gradient(trap_fn, molecule, protocol_time, protocol_time_steps,
+                                         mass, temperature, gamma, shift_fn, loss_fn)
+  mapped_gradient_estimate = jax.vmap(gradient_estimator, [None, 0, 0])  # [location_schedule, x0, key]
+  #@jax.jit
   def _train_step(opt_state, step, key):
-    keys = jax.random.split(key, batch_size)
+    equilibration_keys, protocol_keys = jnp.split(jax.random.split(key, 2 * batch_size), 2)
     schedule = optimizer.params_fn(opt_state)
-    grads, summary = mapped_gradient_estimate(schedule, keys)
+    x_init, eq_sum = mapped_equilibrate(equilibration_keys, x0, mass)
+    grads, summary = mapped_gradient_estimate(schedule, x_init.position, protocol_keys)
     mean_grad = jax.tree_map(lambda x: jnp.mean(x, 0), grads)
     opt_state = optimizer.update_fn(step, mean_grad, opt_state)
     return opt_state, summary

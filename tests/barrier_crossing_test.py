@@ -55,11 +55,11 @@ class TestPotentialFunctions:
         (3., .1, 2 * jnp.pi, 100, 2, lambda t: jnp.sin(t) * jnp.ones(2)),
       ]
     )
-    def test_simulate_barrier_crossing_shape_test(
+    def test_simulate_barrier_crossing_shape(
         self, temperature, gamma, total_time, time_steps, ndim, potential_location_fn):
       energy_fn = barrier_crossing.potential(potential_location_fn)
       simulate = barrier_crossing.simulate_barrier_crossing(energy_fn, temperature, gamma, total_time, time_steps)
-      summary = simulate(jax.random.PRNGKey(0), jnp.zeros(ndim))
+      _, summary = simulate(jax.random.PRNGKey(0), jnp.zeros(ndim))
       np.testing.assert_equal(summary.energy.shape, (time_steps,))
       np.testing.assert_equal(summary.work.shape, (time_steps,))
       np.testing.assert_equal(summary.time.shape, (time_steps,))
@@ -88,18 +88,17 @@ class TestPotentialFunctions:
 
       grad_estimator = barrier_crossing.estimate_gradient(trap_fn=trap_fn,
                                                           molecule=molecule,
-                                                          x0=x0,
                                                           mass=1.,
                                                           temperature=1.,
                                                           gamma=1.,
                                                           total_time=1.,
                                                           time_steps=100)
-      location_schedule = location_schedule
       grad_estimator = jax.jit(grad_estimator)
-      grad, summary = grad_estimator(location_schedule, jax.random.PRNGKey(0))
+      grad, summary = grad_estimator(location_schedule, x0, jax.random.PRNGKey(0))
       flat_grad = jax.tree_leaves(grad)
       for g in flat_grad:
         assert g.all(), f'Got zero values for gradient: {grad}.'
+
 
     @pytest.mark.parametrize(
       ['trap_fn', 'molecule', 'x0', 'location_schedule', 'batch_size', 'seed'],
@@ -130,8 +129,10 @@ class TestPotentialFunctions:
                                                    trap_fn=trap_fn,
                                                    molecule=molecule,
                                                    x0=x0,
-                                                   total_time=1.,
-                                                   time_steps=100,
+                                                   equilibration_time=1.,
+                                                   equilibration_time_steps=100,
+                                                   protocol_time=1.,
+                                                   protocol_time_steps=100,
                                                    mass=1.,
                                                    temperature=1.,
                                                    gamma=1.,
