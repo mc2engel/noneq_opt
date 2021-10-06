@@ -248,7 +248,7 @@ def get_train_step(optimizer: jopt.Optimizer,
                    batch_size: int,
                    time_steps: int,
                    loss_function: LossFn = total_entropy_production,
-                   mode: str = 'rev'
+                   mode: str = 'rev',
                    max_grad: int = 1e4
   ) -> TrainStepFn:
   if mode == 'rev':
