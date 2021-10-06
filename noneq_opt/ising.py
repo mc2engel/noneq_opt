@@ -267,6 +267,6 @@ def get_train_step(optimizer: jopt.Optimizer,
     schedule = optimizer.params_fn(opt_state)
     grads, summary = mapped_gradient_estimate(schedule, times, initial_spins, seeds)
     mean_grad = jax.tree_map(lambda x: jnp.mean(x, 0), grads)
-    opt_state = optimizer.update_fn(step, jopt.experimental.optimizers.clip_grads(mean_grad, max_grad), opt_state)
+    opt_state = optimizer.update_fn(step, jopt.clip_grads(mean_grad, max_grad), opt_state)
     return opt_state, summary
   return _train_step
