@@ -7,8 +7,8 @@ setuptools.setup(
   license='MIT',
   packages=setuptools.find_packages(),
   install_requires=[
-    # Remove restriction once TFP is fixed.
-    "jax<=0.2.11",
+    "jax",
+    "jax-cosmo",
     "jax-md",
     "matplotlib",
     "numpy",

@@ -6,9 +6,11 @@ import dataclasses
 from typing import Callable
 
 import jax
+import jax_cosmo.scipy.interpolate as interpolate
 import jax.numpy as jnp
 import numpy as np
 import scipy.special as sps
+
 
 """
 ### Parameterizations ###
@@ -63,7 +65,7 @@ class Parameterization(metaclass=abc.ABCMeta):
 
 
 class Constant(Parameterization):
-  value: jnp.array
+  value: np.ndarray
 
   @property
   def variables(self):
@@ -78,11 +80,11 @@ class Constant(Parameterization):
 
 
 class PiecewiseLinear(Parameterization):
-  values: jnp.array
-  x0: jnp.array = jnp.array(0.)
-  x1: jnp.array = jnp.array(1.)
-  y0: jnp.array = jnp.array(0.)
-  y1: jnp.array = jnp.array(1.)
+  values: np.ndarray
+  x0: np.ndarray = jnp.array(0.)
+  x1: np.ndarray = jnp.array(1.)
+  y0: np.ndarray = jnp.array(0.)
+  y1: np.ndarray = jnp.array(1.)
 
   @property
   def variables(self):
@@ -141,7 +143,7 @@ def chebyshev_coefficients(degree):
 
 class Chebyshev(Parameterization):
   # Weights must have shape `[ndim, degree]`.
-  weights: jnp.array
+  weights: np.ndarray
 
   @property
   def variables(self):
@@ -177,11 +179,87 @@ class Chebyshev(Parameterization):
       '...w,wp,p...->...', self.weights, self.coefficients, x_powers)
 
 
+class Spline(Parameterization):
+  knots: np.ndarray
+  values: np.ndarray
+  # TODO(jamieas): Add option for free endpoints.
+  x0: np.ndarray = jnp.array(0.)
+  x1: np.ndarray = jnp.array(1.)
+  y0: np.ndarray = jnp.array(0.)
+  y1: np.ndarray = jnp.array(1.)
+  spline_degree: int = 2
+  spline_endpoints: str = 'not-a-knot'
+  variable_knots: bool = False
+
+  @property
+  def variables(self):
+    vars = dict(values=self.values)
+    if self.variable_knots:
+      vars['knots'] = self.knots
+    return vars
+
+  @property
+  def constants(self):
+    consts = dict(x0=self.x0,
+                  x1=self.x1,
+                  y0=self.y0,
+                  y1=self.y1,
+                  spline_degree=self.spline_degree,
+                  spline_endpoints=self.spline_endpoints,
+                  variable_knots=self.variable_knots)
+    if not self.variable_knots:
+      consts['knots'] = self.knots
+    return consts
+
+  @property
+  def domain(self):
+    return (self.x0, self.x1)
+
+  @property
+  def degree(self):
+    return self.knots.shape[-1]
+
+  @property
+  def length(self):
+    return self.degree + 2
+
+  @property
+  def x(self):
+    return jnp.concatenate([
+      self.x0[jnp.newaxis],
+      self.knots,
+      self.x1[jnp.newaxis]
+    ])
+
+  @property
+  def y(self):
+    return jnp.concatenate([
+      self.y0[jnp.newaxis],
+      self.values,
+      self.y1[jnp.newaxis]
+    ])
+
+  @classmethod
+  def equidistant(cls, d, x0=0., x1=1., y0=0., y1=1., **kwargs):
+    x0 = jnp.array(x0)
+    x1 = jnp.array(x1)
+    y0 = jnp.array(y0)
+    y1 = jnp.array(y1)
+    knots = jnp.linspace(x0, x1, d + 2)[1:-1]
+    values = jnp.linspace(y0, y1, d + 2)[1:-1]
+    return cls(knots, values, x0, x1, y0, y1, **kwargs)
+
+  def __call__(self, x):
+    spline = interpolate.InterpolatedUnivariateSpline(
+      self.x, self.y, k=self.spline_degree, endpoints=self.spline_endpoints)
+    return spline(x)
+
+
 class ChangeDomain(Parameterization):
   """Wraps another `Parameterization`, linearly moving to a new domain."""
   wrapped: Parameterization
-  x0: jnp.array
-  x1: jnp.array
+  x0: np.ndarray
+  x1: np.ndarray
 
   @property
   def variables(self):
@@ -210,8 +288,8 @@ class ConstrainEndpoints(Parameterization):
   The resulting function will not resemble `wrapped` in general.
   """
   wrapped: Parameterization
-  y0: jnp.array
-  y1: jnp.array
+  y0: np.ndarray
+  y1: np.ndarray
 
   @property
   def variables(self):

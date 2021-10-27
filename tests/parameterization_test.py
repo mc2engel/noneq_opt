@@ -13,6 +13,8 @@ p10ns = [
   p10n.Chebyshev(jnp.zeros(32)),
   p10n.ChangeDomain(p10n.PiecewiseLinear.equidistant(10), -11., 22.),
   p10n.ConstrainEndpoints(p10n.PiecewiseLinear.equidistant(10), -11., 22.),
+  p10n.Spline.equidistant(d=32, variable_knots=True),
+  p10n.Spline.equidistant(d=8, variable_knots=False),
 ]
 
 
