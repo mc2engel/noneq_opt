@@ -15,6 +15,7 @@ p10ns = [
   p10n.ConstrainEndpoints(p10n.PiecewiseLinear.equidistant(10), -11., 22.),
   p10n.Spline.equidistant(d=32, variable_knots=True),
   p10n.Spline.equidistant(d=8, variable_knots=False),
+  p10n.Spline.from_baseline(jnp.sin, d=8, variable_knots=False),
 ]
 
 

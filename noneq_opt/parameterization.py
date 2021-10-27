@@ -249,6 +249,16 @@ class Spline(Parameterization):
     values = jnp.linspace(y0, y1, d + 2)[1:-1]
     return cls(knots, values, x0, x1, y0, y1, **kwargs)
 
+  @classmethod
+  def from_baseline(cls, baseline, d, x0=0., x1=1., **kwargs):
+    x0 = jnp.array(x0)
+    x1 = jnp.array(x1)
+    y0 = baseline(x0)
+    y1 = baseline(x1)
+    knots = jnp.linspace(x0, x1, d + 2)[1:-1]
+    values = baseline(knots)
+    return cls(knots, values, x0, x1, y0, y1, **kwargs)
+
   def __call__(self, x):
     spline = interpolate.InterpolatedUnivariateSpline(
       self.x, self.y, k=self.spline_degree, endpoints=self.spline_endpoints)
