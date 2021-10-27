@@ -13,6 +13,10 @@ import distrax
 # Note that this implementation uses a different method for Gaussian samples, so it will produce identically
 # _distributed_ values but not identical values to the JAX MD implementation.
 
+# Furthermore, note that this implementation is designed for use with a REINFORCE approach to gradient estimation. In
+# particular, we don't assume that we know the functional relationship between the position returned by `apply_fn` and
+# the given `energy_or_force`.
+
 class BrownianState(collections.namedtuple('BrownianState',
                                            'position mass rng log_prob')):
   pass

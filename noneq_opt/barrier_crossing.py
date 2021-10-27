@@ -6,8 +6,11 @@ import jax
 import jax.numpy as jnp
 import jax.experimental.optimizers as jopt
 from jax_md import space, energy
+from jax_md import simulate as reparameterize_simulate
 
-from noneq_opt import simulate
+from noneq_opt import simulate as reinforce_simulate
+
+BrownianState = Union[reparameterize_simulate.BrownianState, reinforce_simulate.BrownianState]
 
 ### Potential Functions ###
 # These functions define potentials. They close over various parameters and return a function maps (position, time) to
@@ -73,7 +76,7 @@ def sum_potentials(*components):
 
 
 class BarrierCrossingSummary(NamedTuple):
-  state: simulate.BrownianState
+  state: BrownianState
   work: jnp.array
   energy: jnp.array
   time: jnp.array
@@ -100,6 +103,7 @@ def simulate_barrier_crossing(energy_fn: EnergyFn,
                               gamma: Scalar,
                               total_time: Scalar,
                               time_steps: int,
+                              brownian: Callable = reinforce_simulate.brownian,
                               shift_fn: Optional[space.ShiftFn] = None
   ) -> Callable[[jnp.array, jnp.array], BarrierCrossingSummary]:
   if shift_fn is None:
@@ -108,48 +112,48 @@ def simulate_barrier_crossing(energy_fn: EnergyFn,
   times = jnp.linspace(dt, total_time, time_steps)
   wrk_and_nrg = work_and_energy_fn(energy_fn, dt)
 
-  init_fn, apply_fn = simulate.brownian(energy_fn, shift_fn, dt, temperature, gamma)
+  init_fn, apply_fn = brownian(energy_fn, shift_fn, dt, temperature, gamma)
 
   def step(_state, t):
     wrk, nrg = wrk_and_nrg(_state.position, t)
-    new_state = apply_fn(_state, t)
+    new_state = apply_fn(_state, t=t)
     return new_state, BarrierCrossingSummary(new_state, wrk, nrg, t)
 
   @jax.jit
   def _barrier_crossing(key, x0, mass=1.):
     state = init_fn(key, x0, mass)
-    _, summary = jax.lax.scan(step, state, times)
-    return summary
+    final_state, summary = jax.lax.scan(step, state, times)
+    return final_state, summary
 
   return _barrier_crossing
 
 
 # A `LossFn` maps (initial state, final_state, trajectory summary) to a scalar loss.
-LossFn = Callable[[simulate.BrownianState, simulate.BrownianState, BarrierCrossingSummary], jnp.array]
+LossFn = Callable[[BrownianState, BrownianState, BarrierCrossingSummary], jnp.array]
 
 # A `TrapFn` accepts a location function and returns an `EnergyFn` encoding the potential due to our trap.
 TrapFn = Callable[[LocationFn], EnergyFn]
 
 
-def total_work(initial_state: simulate.BrownianState,
-               final_state: simulate.BrownianState,
+def total_work(initial_state: BrownianState,
+               final_state: BrownianState,
                summary: BarrierCrossingSummary) -> jnp.array:
   del initial_state, final_state  # unused
   return summary.work.sum()
 
 
-def estimate_gradient(trap_fn: TrapFn,
-                      molecule: EnergyFn,
-                      x0: jnp.array,
-                      total_time: Scalar,
-                      time_steps: int,
-                      mass: Scalar,
-                      temperature: Scalar,
-                      gamma: Scalar,
-                      shift_fn: Optional[space.ShiftFn] = None,
-                      loss_fn: LossFn = total_work):
+def estimate_gradient_reparameterize(trap_fn: TrapFn,
+                                     molecule: EnergyFn,
+                                     total_time: Scalar,
+                                     time_steps: int,
+                                     mass: Scalar,
+                                     temperature: Scalar,
+                                     gamma: Scalar,
+                                     shift_fn: Optional[space.ShiftFn] = None,
+                                     loss_fn: LossFn = total_work):
   @functools.partial(jax.grad, has_aux=True)
   def _estimate_gradient(location_schedule: LocationFn,
+                         x0: jnp.array,
                          key: jnp.array):
     trap = trap_fn(location_schedule)
     energy_fn = sum_potentials(trap, molecule)
@@ -158,16 +162,48 @@ def estimate_gradient(trap_fn: TrapFn,
                                                   gamma,
                                                   total_time,
                                                   time_steps,
-                                                  shift_fn)
+                                                  brownian=reparameterize_simulate.brownian,
+                                                  shift_fn=shift_fn)
     # TODO: it is awkward that we compute initial state here _and_ inside `simulate`. Consider fixing this.
-    initial_state = simulate.BrownianState(x0, mass, key, 0.)
-    summary = simulate_crossing(key, x0, mass)
+    initial_state = reparameterize_simulate.BrownianState(x0, mass, key)
+    _, summary = simulate_crossing(key, x0, mass)
+    final_state = map_slice(summary.state, -1)
+    loss = loss_fn(initial_state, final_state, summary)
+    return loss, summary
+  return _estimate_gradient
+
+def estimate_gradient_reinforce(trap_fn: TrapFn,
+                                molecule: EnergyFn,
+                                total_time: Scalar,
+                                time_steps: int,
+                                mass: Scalar,
+                                temperature: Scalar,
+                                gamma: Scalar,
+                                shift_fn: Optional[space.ShiftFn] = None,
+                                loss_fn: LossFn = total_work):
+  @functools.partial(jax.grad, has_aux=True)
+  def _estimate_gradient(location_schedule: LocationFn,
+                         x0: jnp.array,
+                         key: jnp.array):
+    trap = trap_fn(location_schedule)
+    energy_fn = sum_potentials(trap, molecule)
+    simulate_crossing = simulate_barrier_crossing(energy_fn,
+                                                  temperature,
+                                                  gamma,
+                                                  total_time,
+                                                  time_steps,
+                                                  brownian=reinforce_simulate.brownian,
+                                                  shift_fn=shift_fn)
+    # TODO: it is awkward that we compute initial state here _and_ inside `simulate`. Consider fixing this.
+    initial_state = reinforce_simulate.BrownianState(x0, mass, key, 0.)
+    _, summary = simulate_crossing(key, x0, mass)
     final_state = map_slice(summary.state, -1)
     loss = loss_fn(initial_state, final_state, summary)
     log_prob = summary.state.log_prob.sum()
     gradient_estimator = log_prob * jax.lax.stop_gradient(loss) + loss
     return gradient_estimator, summary
   return _estimate_gradient
+
 
 # A `TrainStepFn` takes (optimizer state, step, seed) and returns (new optimizer state, summary).
 TrainStepFn = Callable[[jopt.OptimizerState, jnp.array, jnp.array],
@@ -178,23 +214,37 @@ def get_train_step(optimizer: jopt.Optimizer,
                    trap_fn: TrapFn,
                    molecule: EnergyFn,
                    x0: jnp.array,
-                   total_time: Scalar,
-                   time_steps: int,
+                   equilibration_time: Scalar,
+                   equilibration_time_steps: int,
+                   protocol_time: Scalar,
+                   protocol_time_steps: int,
                    mass: Scalar,
                    temperature: Scalar,
                    gamma: Scalar,
                    batch_size: int,
+                   gradient_estimation_method: str = 'reinforce',
                    shift_fn: Optional[space.ShiftFn] = None,
                    loss_fn: LossFn = total_work,
   ) -> TrainStepFn:
-  gradient_estimator = estimate_gradient(trap_fn, molecule, x0, total_time, time_steps, mass,
-                                         temperature, gamma, shift_fn, loss_fn)
-  mapped_gradient_estimate = jax.vmap(gradient_estimator, [None, 0])
+  still = lambda *_, **__: x0  # TODO(jamieas): this assumes `x0` is the starting position of the trap.
+  equilibrate = simulate_barrier_crossing(sum_potentials(trap_fn(still), molecule), temperature,
+                                          gamma, equilibration_time, equilibration_time_steps)
+  mapped_equilibrate = jax.vmap(equilibrate, [0, None, None])  # [key, x0, mass]
+  if gradient_estimation_method == 'reinforce':
+    estimate_gradient = estimate_gradient_reinforce
+  elif gradient_estimation_method == 'reparameterize':
+    estimate_gradient = estimate_gradient_reparameterize
+  else:
+    raise ValueError(f'Unknown gradient estimation method: {gradient_estimation_method}.')
+  gradient_estimator = estimate_gradient(trap_fn, molecule, protocol_time, protocol_time_steps,
+                                         mass, temperature, gamma, shift_fn, loss_fn)
+  mapped_gradient_estimate = jax.vmap(gradient_estimator, [None, 0, 0])  # [location_schedule, x0, key]
   @jax.jit
   def _train_step(opt_state, step, key):
-    keys = jax.random.split(key, batch_size)
+    equilibration_keys, protocol_keys = jnp.split(jax.random.split(key, 2 * batch_size), 2)
     schedule = optimizer.params_fn(opt_state)
-    grads, summary = mapped_gradient_estimate(schedule, keys)
+    x_init, eq_sum = mapped_equilibrate(equilibration_keys, x0, mass)
+    grads, summary = mapped_gradient_estimate(schedule, x_init.position, protocol_keys)
     mean_grad = jax.tree_map(lambda x: jnp.mean(x, 0), grads)
     opt_state = optimizer.update_fn(step, mean_grad, opt_state)
     return opt_state, summary

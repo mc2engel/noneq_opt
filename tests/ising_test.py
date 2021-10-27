@@ -133,7 +133,7 @@ class TestSimulation:
   @pytest.mark.parametrize(
     ['schedule', 'times', 'initial_spins', 'seed'],
     [
-      (ising.IsingSchedule(log_temp=p10n.Constant(1.), field=p10n.Chebyshev(jnp.ones(8))),
+      (ising.IsingSchedule(log_temp=p10n.Chebyshev(jnp.ones(8)), field=p10n.Chebyshev(jnp.ones(8))),
        jnp.linspace(0, 1, 5),
        -jnp.ones([10, 10]),
        jax.random.PRNGKey(0)),

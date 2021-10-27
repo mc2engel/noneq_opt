@@ -55,11 +55,11 @@ class TestPotentialFunctions:
         (3., .1, 2 * jnp.pi, 100, 2, lambda t: jnp.sin(t) * jnp.ones(2)),
       ]
     )
-    def test_simulate_barrier_crossing_shape_test(
+    def test_simulate_barrier_crossing_shape(
         self, temperature, gamma, total_time, time_steps, ndim, potential_location_fn):
       energy_fn = barrier_crossing.potential(potential_location_fn)
       simulate = barrier_crossing.simulate_barrier_crossing(energy_fn, temperature, gamma, total_time, time_steps)
-      summary = simulate(jax.random.PRNGKey(0), jnp.zeros(ndim))
+      _, summary = simulate(jax.random.PRNGKey(0), jnp.zeros(ndim))
       np.testing.assert_equal(summary.energy.shape, (time_steps,))
       np.testing.assert_equal(summary.work.shape, (time_steps,))
       np.testing.assert_equal(summary.time.shape, (time_steps,))
@@ -82,27 +82,33 @@ class TestPotentialFunctions:
         ),
       ]
     )
-    def test_estimate_gradient(self, trap_fn, molecule, x0, location_schedule):
+    @pytest.mark.parametrize(
+      ['estimate_gradient'],
+      [
+        (barrier_crossing.estimate_gradient_reinforce,),
+        (barrier_crossing.estimate_gradient_reparameterize,)
+      ]
+    )
+    def test_estimate_gradient(self, trap_fn, molecule, x0, location_schedule, estimate_gradient):
       # TODO: figure out a way to validate the gradient estimates. For now, we just verify that the code runs and produces
       # non-zero values.
 
-      grad_estimator = barrier_crossing.estimate_gradient(trap_fn=trap_fn,
-                                                          molecule=molecule,
-                                                          x0=x0,
-                                                          mass=1.,
-                                                          temperature=1.,
-                                                          gamma=1.,
-                                                          total_time=1.,
-                                                          time_steps=100)
-      location_schedule = location_schedule
+      grad_estimator = estimate_gradient(trap_fn=trap_fn,
+                                         molecule=molecule,
+                                         mass=1.,
+                                         temperature=1.,
+                                         gamma=1.,
+                                         total_time=1.,
+                                         time_steps=100)
       grad_estimator = jax.jit(grad_estimator)
-      grad, summary = grad_estimator(location_schedule, jax.random.PRNGKey(0))
+      grad, summary = grad_estimator(location_schedule, x0, jax.random.PRNGKey(0))
       flat_grad = jax.tree_leaves(grad)
       for g in flat_grad:
         assert g.all(), f'Got zero values for gradient: {grad}.'
 
+
     @pytest.mark.parametrize(
-      ['trap_fn', 'molecule', 'x0', 'location_schedule', 'batch_size', 'seed'],
+      ['trap_fn', 'molecule', 'x0', 'location_schedule', 'batch_size', 'gradient_estimation_method', 'seed'],
       [
         (
             barrier_crossing.potential,
@@ -110,6 +116,7 @@ class TestPotentialFunctions:
             jnp.zeros(1),
             p10n.Chebyshev(jnp.ones([1, 32])),
             64,
+            'reinforce',
             jax.random.PRNGKey(0)
         ),
         (
@@ -118,11 +125,13 @@ class TestPotentialFunctions:
             jnp.zeros(3),
             p10n.Chebyshev(jnp.ones([3, 32])),
             32,
+            'reparameterize',
             jax.random.PRNGKey(0)
         ),
       ]
     )
-    def test_training_step(self, trap_fn, molecule, x0, location_schedule, batch_size, seed):
+    def test_training_step(self, trap_fn, molecule, x0, location_schedule,
+                           batch_size, gradient_estimation_method, seed):
       """Tests that the training step runs and produces an optimizer state with finite values after 20 steps."""
       optimizer = jopt.adam(1e-3)
       state = optimizer.init_fn(location_schedule)
@@ -130,12 +139,15 @@ class TestPotentialFunctions:
                                                    trap_fn=trap_fn,
                                                    molecule=molecule,
                                                    x0=x0,
-                                                   total_time=1.,
-                                                   time_steps=100,
+                                                   equilibration_time=1.,
+                                                   equilibration_time_steps=100,
+                                                   protocol_time=1.,
+                                                   protocol_time_steps=100,
                                                    mass=1.,
                                                    temperature=1.,
                                                    gamma=1.,
-                                                   batch_size=batch_size)
+                                                   batch_size=batch_size,
+                                                   gradient_estimation_method=gradient_estimation_method)
       for step in range(20):
         seed, split = jax.random.split(seed)
         state, summary = train_step(state, step, split)
