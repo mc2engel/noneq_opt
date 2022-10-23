@@ -3,7 +3,7 @@ import functools
 from typing import Iterable, NamedTuple, Optional, Tuple, Callable
 
 import jax
-import jax.experimental.optimizers as jopt
+from jax.example_libraries import optimizers as jopt
 import jax.numpy as jnp
 import distrax
 
