@@ -4,7 +4,7 @@ from typing import Callable, Union, NamedTuple, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
-import jax.experimental.optimizers as jopt
+from jax.example_libraries import optimizers as jopt
 from jax_md import space, energy
 
 from noneq_opt import simulate
