@@ -42,12 +42,30 @@ class IsingSummary(NamedTuple):
 
 # TODO: move these to `utils` or similar.
 
+def log_temp_baseline(min_temp=.69, max_temp=10., degree=2):
+  def _log_temp_baseline(t):
+    scale = (max_temp - min_temp)
+    shape = (1 - t)**degree * t**degree * 4 ** degree
+    return jnp.log(shape * scale + min_temp)
+  return _log_temp_baseline
+
+def field_baseline(start_field=1., end_field=-1.):
+  def _field_baseline(t):
+    return (1 - t) * start_field + t * end_field
+  return _field_baseline
+
+def seed_stream(seed):
+  key = jax.random.PRNGKey(seed)
+  while True:
+    key, yielded = jax.random.split(key)
+    yield(key)
+
 def map_slice(x, idx):
   return jax.tree_map(lambda y: y[idx], x)
 
 
 def map_stack(xs, axis=0):
-  return jax.tree_multimap(lambda *args: jnp.stack(args, axis), *xs)
+  return jax.tree_map(lambda *args: jnp.stack(args, axis), *xs)
 
 
 def random_spins(shape, p, seed):
@@ -210,7 +228,7 @@ def estimate_gradient_fwd(loss_function):
                                                                 initial_spins,
                                                                 seed)
     # ∇_est = ∇log(p) x loss + ∇loss
-    gradient_estimate = jax.tree_multimap(
+    gradient_estimate = jax.tree_map(
         lambda x, y: x + y,
         jax.tree_map(lambda x: loss * x, log_prob_jac),
         loss_jac)
