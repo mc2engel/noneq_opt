@@ -49,7 +49,7 @@ def log_temp_baseline(min_temp=.69, max_temp=10., degree=2):
     return jnp.log(shape * scale + min_temp)
   return _log_temp_baseline
 
-def field_baseline(start_field=1., end_field=-1.):
+def field_baseline(start_field=-1., end_field=1.):
   def _field_baseline(t):
     return (1 - t) * start_field + t * end_field
   return _field_baseline
@@ -266,7 +266,8 @@ def get_train_step(optimizer: jopt.Optimizer,
                    batch_size: int,
                    time_steps: int,
                    loss_function: LossFn = total_entropy_production,
-                   mode: str = 'rev'
+                   mode: str = 'rev',
+                   max_grad: int = 1e4
   ) -> TrainStepFn:
   if mode == 'rev':
     # TODO: consider adding a `checkpoint_every` arg for reverse mode.
@@ -284,6 +285,7 @@ def get_train_step(optimizer: jopt.Optimizer,
     schedule = optimizer.params_fn(opt_state)
     grads, summary = mapped_gradient_estimate(schedule, times, initial_spins, seeds)
     mean_grad = jax.tree_map(lambda x: jnp.mean(x, 0), grads)
-    opt_state = optimizer.update_fn(step, mean_grad, opt_state)
+    #opt_state = optimizer.update_fn(step, mean_grad, opt_state)
+    opt_state = optimizer.update_fn(step, jopt.clip_grads(mean_grad, max_grad), opt_state)
     return opt_state, summary
   return _train_step

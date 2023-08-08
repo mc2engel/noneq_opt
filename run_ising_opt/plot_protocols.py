@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from noneq_opt import ising
 from noneq_opt import parameterization as p10n
 import pickle
+import sys
 
 def plot_schedules(schedules, time_steps):
   times = np.linspace(0, 1, 100)
@@ -31,16 +32,16 @@ def plot_schedules(schedules, time_steps):
 
 
 #parameters to plot:
-size = 128
-seed = 0 
-time_steps = 11 
+size = int(sys.argv[1]) #128
+time_steps = int(sys.argv[2]) #11 
 #degree of Chebyshev polynomials that describe protocols
-field_degree = log_temp_degree= 32
-batch_size = 256
-training_steps = 10 
+field_degree = log_temp_degree= int(sys.argv[3]) #32
+batch_size = int(sys.argv[4]) #256
+training_steps = int(sys.argv[5]) #10 
+skip_every = int(sys.argv[6])
 
 #load files:
-loaddir = 'output/'
+loaddir = '../launch_scripts/output/'
 prefix = '%ix%ilattice_timesteps_%i_chebdeg_%i_batch_%i_trainsteps_%i_' %(size,size,time_steps,field_degree,batch_size,training_steps)
 
 file1 = open(loaddir+prefix+'log_temp_weights.pkl', 'rb')
@@ -85,9 +86,11 @@ for i in range(len(log_temp_weights_load)):
       log_temp_schedule, field_schedule))
 
 my_dict={}
-print(len(schedules))
+print("num scheds saved: ",len(schedules))
 for j in range(len(schedules)):
-    my_dict[f'Step {j}']=schedules[j]
+    #print(j)
+    if(j%skip_every==0):
+        my_dict[f'Step {j}']=schedules[j]
 
 plot_schedules(my_dict,time_steps)
 plt.show()

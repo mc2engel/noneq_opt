@@ -13,36 +13,30 @@ import time
 from noneq_opt import ising
 from noneq_opt import parameterization as p10n
 
-##simulation and training parameters
-size = 128
-seed = 0 
+import sys
 
-time_steps = 11 
+##simulation and training parameters
+size = int(sys.argv[1]) #32
+seed = int(sys.argv[2]) #0 
+
+time_steps = int(sys.argv[3]) #51 
 
 #degree of Chebyshev polynomials that describe protocols
-field_degree = log_temp_degree= 32
-batch_size = 256
-training_steps = 10
-save_every = 1 
-lr = jopt.exponential_decay(.1, .9 * training_steps, 0.1)
+field_degree = log_temp_degree= int(sys.argv[4]) #32
+batch_size = int(sys.argv[5]) #256
+training_steps = int(sys.argv[6]) #5
+save_every = int(sys.argv[7]) #1
+init=0.1
+lr = jopt.exponential_decay(init, training_steps, .01)
 optimizer = jopt.adam(lr)
+max_grad_ = 1
+print("Running Ising optimization for ",size,"x",size," lattice for ",time_steps," time steps.")
 
 #Define initial guess for the optimal protocol
 #We do this by defining "baseline" functions and learning a "diff" from these baselines.
-def log_temp_baseline(min_temp=.69, max_temp=10., degree=2):
-  def _log_temp_baseline(t):
-    scale = (max_temp - min_temp)
-    shape = (1 - t)**degree * t**degree * 4 ** degree
-    return jnp.log(shape * scale + min_temp)
-  return _log_temp_baseline
 
-def field_baseline(start_field=1., end_field=-1.):
-  def _field_baseline(t):
-    return (1 - t) * start_field + t * end_field
-  return _field_baseline
-
-Tbaseline=log_temp_baseline()
-Fbaseline = field_baseline()
+Tbaseline= ising.log_temp_baseline(min_temp=0.65)
+Fbaseline = ising.field_baseline()
 
 init_guess_log_temp =  jnp.zeros(log_temp_degree)
 init_guess_field =  jnp.zeros(field_degree)
@@ -79,15 +73,17 @@ initial_schedule = schedule = ising.IsingSchedule(
 
 stream = ising.seed_stream(0)
 state = optimizer.init_fn(schedule)
-initial_spins = jnp.ones([size, size]) #start with all spins 'up'
+initial_spins = -jnp.ones([size, size]) #start with all spins 'up'
 
 train_step = ising.get_train_step(optimizer,
                                   initial_spins,
                                   batch_size,
                                   time_steps,
                                   ising.total_entropy_production,
-                                  mode = 'fwd')
-
+                                  mode = 'fwd',
+                                  max_grad = max_grad_)
+from jax.lib import xla_bridge
+print("using backend: ",xla_bridge.get_backend().platform)
 summaries = []
 entropies = []
 log_temp = []
@@ -97,10 +93,21 @@ fields_weights = []
 gradients = []
 grad_REINFORCE_term = []
 grad_traj_term = []
+times = jnp.linspace(0, 1, time_steps)
+initial_spin_state = ising.IsingState(initial_spins, ising.map_slice(initial_schedule(times), 0))
+log_p_init = - ising.energy(initial_spin_state) / jnp.exp(initial_schedule(times).log_temp[0])
+final_kT = jnp.exp(initial_schedule(times).log_temp[-1])
+
 for j in tqdm.trange(training_steps, position=0):
   state, summary = train_step(state, j, next(stream))
-  entropies.append(jax.device_get(summary.entropy_production))
-  if(j%save_every == 0):
+  #add correction term:
+  log_p_final = - summary.energy[:,-1] / final_kT
+  correction = log_p_init - log_p_final
+  final_entropies = np.array(jax.device_get(summary.entropy_production))
+  final_entropies[:,-1] = final_entropies[:,-1] + correction
+  entropies.append(final_entropies) 
+  if((j%save_every == 0) or (j==(training_steps-1))):
+    print("saving iteration ",j)
     summaries.append(jax.device_get(summary))
     log_temp.append(optimizer.params_fn(state).log_temp)
     log_temp_weights.append(optimizer.params_fn(state).log_temp.variables['wrapped'].variables['wrapped'].weights)
