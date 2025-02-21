@@ -183,10 +183,10 @@ class Spline(Parameterization):
   knots: np.ndarray
   values: np.ndarray
   # TODO(jamieas): Add option for free endpoints.
-  x0: jnp.ndarray = field(default_factory=lambda: jnp.zeros(1)) # Use default_factory
-  x1: jnp.ndarray = field(default_factory=lambda: jnp.ones(1)) # Use default_factory
-  y0: jnp.ndarray = field(default_factory=lambda: jnp.zeros(1)) # Use default_factory
-  y1: jnp.ndarray = field(default_factory=lambda: jnp.ones(1)) # Use default_factory
+  x0: jnp.ndarray = dataclasses.field(default_factory=lambda: jnp.zeros(1)) # Use default_factory
+  x1: jnp.ndarray = dataclasses.field(default_factory=lambda: jnp.ones(1)) # Use default_factory
+  y0: jnp.ndarray = dataclasses.field(default_factory=lambda: jnp.zeros(1)) # Use default_factory
+  y1: jnp.ndarray = dataclasses.field(default_factory=lambda: jnp.ones(1)) # Use default_factory
   spline_degree: int = 2
   spline_endpoints: str = 'not-a-knot'
   variable_knots: bool = False
