@@ -9,7 +9,7 @@ setuptools.setup(
   install_requires=[
     "jax==0.3.25",
     "jax-cosmo",
-    "jax-md==0.2.24",
+    "jax-md==0.2.4",
     "matplotlib",
     "numpy",
     "pandas",
