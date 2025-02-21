@@ -7,7 +7,7 @@ setuptools.setup(
   license='MIT',
   packages=setuptools.find_packages(),
   install_requires=[
-    "jax==0.3.25",
+    "jax",
     "jax-cosmo",
     "matplotlib",
     "numpy",
