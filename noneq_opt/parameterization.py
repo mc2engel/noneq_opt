@@ -81,10 +81,10 @@ class Constant(Parameterization):
 
 class PiecewiseLinear(Parameterization):
   values: np.ndarray
-  x0: np.ndarray = jnp.array(0.)
-  x1: np.ndarray = jnp.array(1.)
-  y0: np.ndarray = jnp.array(0.)
-  y1: np.ndarray = jnp.array(1.)
+  x0: np.ndarray = jnp.ndarray = dataclasses.field(default_factory=lambda: jnp.array(0.))
+  x1: np.ndarray = jnp.ndarray = dataclasses.field(default_factory=lambda: jnp.array(1.))
+  y0: np.ndarray = jnp.ndarray = dataclasses.field(default_factory=lambda: jnp.array(0.))
+  y1: np.ndarray = jnp.ndarray = dataclasses.field(default_factory=lambda: jnp.array(1.))
 
   @property
   def variables(self):
